@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #060606;
+  --color-panel: #121212;
+  --color-panel-soft: #171717;
+  --color-panel-muted: #0d0d0d;
+  --color-line: #222222;
+  --color-line-strong: rgba(218, 208, 175, 0.28);
+  --color-accent: #dad0af;
+  --color-muted: #9a9588;
+  --color-muted-strong: #c7c0af;
+  --color-success: #4ade80;
+  --color-warning: #facc15;
+  --color-danger: #f87171;
+  --color-info: #818cf8;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Avenir Next", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: var(--color-ink);
+  }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top, rgba(218, 208, 175, 0.08), transparent 32%),
+      linear-gradient(180deg, #12100c 0%, #080808 24%, #060606 100%);
+    color: #ece7db;
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #app {
+    min-height: 100vh;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: rgba(218, 208, 175, 0.18);
+    color: #f7f2e7;
+  }
+}
+
+@layer components {
+  .nav-pill {
+    border: 1px solid rgba(218, 208, 175, 0.28);
+    border-radius: 999px;
+    color: var(--color-accent);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    line-height: 1;
+    padding: 0.7rem 0.95rem;
+    text-transform: uppercase;
+    transition: background-color 160ms ease, border-color 160ms ease;
+  }
+
+  .nav-pill:hover {
+    background: rgba(218, 208, 175, 0.08);
+    border-color: rgba(218, 208, 175, 0.5);
+  }
+}
