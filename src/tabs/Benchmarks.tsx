@@ -3,7 +3,7 @@ import type { ChartData, ChartOptions } from "chart.js";
 import ChartCard from "../components/ChartCard";
 import { summarizeBenchmarkRun } from "../lib/analytics";
 import { createBaseChartOptions } from "../lib/chart";
-import { clamp, formatMonthDayTime, formatNumber, formatPercent, cx } from "../lib/format";
+import { clamp, formatMonthDayTime, formatPercent, cx } from "../lib/format";
 import type { BenchmarkAggregate, BenchmarksTabData } from "../types";
 
 type BenchmarksProps = {
@@ -346,7 +346,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   });
 
   const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  const mostRecentRun = chronologicalRuns[chronologicalRuns.length - 1];
 
   const deviceOptions = Array.from(new Set(chronologicalRuns.map(deviceLabel))).sort();
 
@@ -1113,26 +1112,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-3 rounded-[1.25rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur-md mt-10">
-        <div className="flex items-center gap-3 text-[0.85rem]">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-success shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
-            <span className="text-muted font-medium">Last Run:</span>
-          </div>
-          <span className="font-semibold text-zinc-200">
-            {formatMonthDayTime(mostRecentRun.timestamp)}
-          </span>
-          <span className="text-white/20 hidden sm:inline">•</span>
-          <span className="text-muted hidden sm:inline">{deviceLabel(mostRecentRun)}</span>
-          <span className="text-white/20 hidden md:inline">•</span>
-          <span className="px-2 py-0.5 rounded text-[0.7rem] font-bold bg-white/10 text-white hidden md:inline tracking-wider uppercase shadow-sm border border-white/5">
-            {formatScenarioName(mostRecentRun.scenarioName)}
-          </span>
-        </div>
-        <div className="text-[0.85rem] text-muted">
-          <strong className="text-zinc-100 font-semibold">{formatNumber(data.runs.length, 0)}</strong> captured runs
-        </div>
-      </div>
     </div>
   );
 }
