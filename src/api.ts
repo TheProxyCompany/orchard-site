@@ -1,13 +1,12 @@
 import type { BenchmarksTabData, DashboardErrorResponse } from "./types";
 
 const DEFAULT_DAYS = 30;
-const DEFAULT_API_URL = "https://analytics.theproxycompany.com/api";
+const DEFAULT_API_URL = "https://api.theproxycompany.com/v1/benchmarks";
 
 function benchmarkApiUrl(days: number): string {
   const configured = import.meta.env.VITE_BENCHMARKS_API_URL as string | undefined;
   const base = configured?.trim() || DEFAULT_API_URL;
   const url = new URL(base, window.location.origin);
-  url.searchParams.set("tab", "benchmarks");
   url.searchParams.set("days", String(days));
   return url.toString();
 }
