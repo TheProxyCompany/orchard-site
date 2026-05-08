@@ -64,22 +64,61 @@ export default function App() {
       </header>
 
       <article className="document">
-        <section className="prose-block hero">
-          <p className="eyebrow">The Proxy Company</p>
-          <h1>Orchard</h1>
-          <p className="lede">
-            Local inference for Apple Silicon. Run open models on your Mac with a native engine built for streaming,
-            structured output, multimodal workloads, and multiple models at once.
-          </p>
-          <div className="command-stack" id="install" aria-label="Install Orchard">
-            {INSTALL_COMMANDS.map((command) => (
-              <code key={command}>{command}</code>
-            ))}
+        <section className="hero">
+          <div className="hero-copy">
+            <p className="eyebrow">The Proxy Company</p>
+            <h1>Orchard</h1>
+            <p className="tagline">Every Apple needs an Orchard.</p>
+            <p className="lede">
+              Local inference on Apple Silicon. The engine underneath Proxy. Run multiple models at once on your Mac.
+            </p>
+            <div className="command-stack" id="install" aria-label="Install Orchard">
+              {INSTALL_COMMANDS.map((command) => (
+                <code key={command}>{command}</code>
+              ))}
+            </div>
           </div>
+          <figure className="painting">
+            <img
+              src="https://proxy.ing/images/orchard.webp"
+              alt="The Apple Gathering by Jerome Thompson"
+            />
+            <figcaption>The Apple Gathering · Jerome Thompson</figcaption>
+          </figure>
+        </section>
+
+        <section className="prose-grid">
+          <div>
+            <h2>Local First</h2>
+            <p>
+              Orchard is the local compute layer for Proxy and a standalone runtime for developers building with open
+              models on Apple Silicon.
+            </p>
+          </div>
+          <ul>
+            <li>Multiple models, at the same time</li>
+            <li>Structured output, multimodal, streaming</li>
+            <li>Custom kernels and inference engine built for Apple Silicon</li>
+          </ul>
+        </section>
+
+        <section className="prose-grid">
+          <div>
+            <h2>Open Source</h2>
+            <p>
+              Private, offline, on device. Use Orchard directly through the SDKs or as the engine layer underneath a
+              larger local AI application.
+            </p>
+          </div>
+          <ul>
+            <li><a href="https://pypi.org/project/orchard/">Python SDK on PyPI</a></li>
+            <li><a href="https://github.com/TheProxyCompany/orchard-rs">Rust SDK on crates.io</a></li>
+            <li><a href="https://docs.theproxycompany.com/orchard/">Read the docs</a></li>
+          </ul>
         </section>
 
         <section className="prose-block">
-          <h2>Why care?</h2>
+          <h2>Why it exists</h2>
           <p>
             Cloud models are useful. They should not be the only way your software can think. Orchard is the local
             compute layer under Proxy: private by default, fast on Apple Silicon, and designed for real applications
@@ -94,7 +133,7 @@ export default function App() {
 
         <section className="prose-grid">
           <div>
-            <h2>Use it directly</h2>
+            <h2>Use the runtime</h2>
             <p>
               Install the SDK, pick a supported open model, and call Orchard from your app or benchmark harness.
             </p>
