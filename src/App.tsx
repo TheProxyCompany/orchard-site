@@ -5,6 +5,10 @@ import { formatRelativeTime } from "./lib/format";
 import type { BenchmarksTabData } from "./types";
 
 const FETCH_TIMEOUT_MS = 30000;
+const INSTALL_COMMANDS = [
+  "pip install orchard",
+  "cargo add orchard-rs",
+];
 
 export default function App() {
   const [data, setData] = useState<BenchmarksTabData | null>(null);
@@ -48,53 +52,96 @@ export default function App() {
   }, []);
 
   return (
-    <div className="relative isolate min-h-screen overflow-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[34rem] bg-[radial-gradient(circle_at_top_left,rgba(218,208,175,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(74,222,128,0.12),transparent_26%)]" />
-      <div className="mx-auto max-w-[1560px] px-4 py-5 lg:px-6 lg:py-6">
-        <header className="mb-5 flex flex-col items-start justify-between gap-4 rounded-[1.25rem] border border-line-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.025),transparent_70%),rgba(18,18,18,0.92)] px-5 py-4 shadow-panel backdrop-blur md:flex-row md:items-center">
+    <main className="mx-auto max-w-[1180px] px-5 py-8 sm:px-8 lg:py-12">
+      <header className="site-header">
+        <a href="/" className="site-mark">Orchard.md</a>
+        <nav className="site-nav">
+          <a href="#install">Install</a>
+          <a href="#benchmarks">Benchmarks</a>
+          <a href="https://docs.theproxycompany.com/orchard/">Docs</a>
+          <a href="https://github.com/TheProxyCompany">GitHub</a>
+        </nav>
+      </header>
+
+      <article className="document">
+        <section className="prose-block hero">
+          <p className="eyebrow">The Proxy Company</p>
+          <h1>Orchard</h1>
+          <p className="lede">
+            Local inference for Apple Silicon. Run open models on your Mac with a native engine built for streaming,
+            structured output, multimodal workloads, and multiple models at once.
+          </p>
+          <div className="command-stack" id="install" aria-label="Install Orchard">
+            {INSTALL_COMMANDS.map((command) => (
+              <code key={command}>{command}</code>
+            ))}
+          </div>
+        </section>
+
+        <section className="prose-block">
+          <h2>Why care?</h2>
+          <p>
+            Cloud models are useful. They should not be the only way your software can think. Orchard is the local
+            compute layer under Proxy: private by default, fast on Apple Silicon, and designed for real applications
+            instead of toy completions.
+          </p>
+          <p>
+            The engine combines a C++ inference runtime, custom Metal kernels, grammar-aware generation, and Python and
+            Rust clients. It is built for the work developers actually need from local models: tool calling, JSON,
+            visual inputs, long-running agents, and low-latency interactive loops.
+          </p>
+        </section>
+
+        <section className="prose-grid">
           <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <a href="/" className="text-[1.15rem] font-semibold tracking-[0.02em] text-accent">
-                Orchard
-              </a>
-              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-muted-strong">
-                Benchmarks
-              </span>
-              {updatedAt ? (
-                <span className="text-xs text-muted">
-                  Updated {formatRelativeTime(updatedAt)}
-                </span>
-              ) : null}
-              {loading && data ? (
-                <span className="flex items-center gap-1.5 text-[0.6rem] font-medium tracking-[0.14em] text-accent uppercase">
-                  <span className="inline-flex size-1.5 rounded-full bg-accent animate-pulse" />
-                  Syncing
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-              Public performance history for The Proxy Company's local inference engine. These charts are lifted from the internal dashboard so the public page can show the same benchmark record.
+            <h2>Use it directly</h2>
+            <p>
+              Install the SDK, pick a supported open model, and call Orchard from your app or benchmark harness.
             </p>
           </div>
-          <nav className="flex flex-wrap items-center gap-2">
-            <a className="nav-pill" href="https://docs.theproxycompany.com/orchard/">Docs</a>
-            <a className="nav-pill" href="https://github.com/TheProxyCompany">GitHub</a>
-            <a className="nav-pill" href="https://theproxycompany.com/orchard/">Company</a>
-          </nav>
-        </header>
+          <ul>
+            <li>Python and Rust clients</li>
+            <li>OpenAI-style responses</li>
+            <li>Structured output and state-constrained decoding</li>
+            <li>Apple Silicon first, with performance numbers below</li>
+          </ul>
+        </section>
+
+        <section className="prose-block">
+          <h2>Check the work</h2>
+          <p>
+            The benchmark feed below is public for the same reason the engine is public-facing: performance claims
+            should be inspectable. These are captured runs from the benchmark pipeline, with hostnames stripped before
+            the data leaves the API.
+          </p>
+          {updatedAt ? (
+            <p className="muted-line">Benchmark feed updated {formatRelativeTime(updatedAt)}.</p>
+          ) : null}
+        </section>
+      </article>
+
+      <section id="benchmarks" className="benchmarks-shell" aria-labelledby="benchmarks-heading">
+        <div className="benchmarks-heading">
+          <div>
+            <p className="eyebrow">Public benchmark feed</p>
+            <h2 id="benchmarks-heading">Orchard Benchmarks</h2>
+          </div>
+          {loading && data ? (
+            <span className="sync-label">
+              <span />
+              Syncing
+            </span>
+          ) : null}
+        </div>
 
         {error ? (
-          <div className="rounded-[1.25rem] border border-danger/30 bg-danger/10 px-5 py-4 text-sm text-red-100">
-            {error}
-          </div>
+          <div className="state-box state-box--error">{error}</div>
         ) : data ? (
           <Benchmarks data={data} />
         ) : (
-          <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.02] px-5 py-12 text-center text-muted">
-            Loading Orchard benchmarks...
-          </div>
+          <div className="state-box">Loading benchmark feed...</div>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
