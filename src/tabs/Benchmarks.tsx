@@ -330,12 +330,19 @@ function releaseLabel(version: string, channel: string): string {
   return channel === "stable" ? version : `${version} ${channel}`;
 }
 
+function isStablePieRelease(release: NonNullable<BenchmarksTabData["releases"]>[number]): boolean {
+  const channel = (release.channel || "stable").toLowerCase();
+  return channel === "stable" && release.artifactName.startsWith("pie-v");
+}
+
 function releaseMarkersForData(data: BenchmarksTabData): ReleaseMarker[] {
-  return (data.releases ?? []).map((release) => ({
-    timestamp: release.createdAt,
-    label: releaseLabel(release.version, release.channel),
-    channel: release.channel,
-  }));
+  return (data.releases ?? [])
+    .filter(isStablePieRelease)
+    .map((release) => ({
+      timestamp: release.createdAt,
+      label: releaseLabel(release.version, release.channel),
+      channel: release.channel,
+    }));
 }
 
 function withReleaseMarkers(
@@ -598,7 +605,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
             {releaseMarkers.length > 0 ? (
               <div className="flex items-center gap-2 text-[0.85rem] text-muted">
                 <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
-                PIE releases
+                Stable PIE releases
               </div>
             ) : null}
           </div>
@@ -1055,7 +1062,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                       {releaseMarkers.length > 0 ? (
                         <div className="flex items-center gap-2 text-[0.85rem] text-muted">
                           <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
-                          PIE releases
+                          Stable PIE releases
                         </div>
                       ) : null}
                     </div>
