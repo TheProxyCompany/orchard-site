@@ -3,7 +3,7 @@ import type { ChartData, ChartOptions } from "chart.js";
 import ChartCard from "../components/ChartCard";
 import { summarizeBenchmarkRun } from "../lib/analytics";
 import { createBaseChartOptions, releaseMarkersPlugin, type ReleaseMarker } from "../lib/chart";
-import { clamp, formatMonthDayTime, formatNumber, formatPercent, cx } from "../lib/format";
+import { clamp, formatMonthDayTime, formatPercent, cx } from "../lib/format";
 import type { BenchmarkAggregate, BenchmarksTabData } from "../types";
 
 type BenchmarksProps = {
@@ -516,7 +516,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   });
 
   const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  const mostRecentRun = chronologicalRuns[chronologicalRuns.length - 1];
   const releaseMarkers = releaseMarkersForData(data);
   const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
 
@@ -658,30 +657,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       setSelectedPerformanceDevice(null);
     }
   }, [selectedPerformanceDevice, performanceDeviceOptions.join("|")]);
-
-  const latestRelease = releaseMarkers.at(-1);
-  const benchmarkStats = [
-    {
-      label: "Captured runs",
-      value: formatNumber(data.runs.length, 0),
-      detail: `${formatNumber(data.days, 0)} day window`,
-    },
-    {
-      label: "Engine targets",
-      value: formatNumber(performanceTargets.length, 0),
-      detail: performanceTargets.map((target) => target.name).join(", "),
-    },
-    {
-      label: "Tracked models",
-      value: formatNumber(MODEL_TARGETS.length, 0),
-      detail: modelFamilies.join(", "),
-    },
-    {
-      label: "Quality scenarios",
-      value: formatNumber(qualityScenarios.length, 0),
-      detail: qualityScenarios.slice(0, 3).map(formatScenarioName).join(", "),
-    },
-  ];
 
   const renderQualityChart = () => {
     const options: ChartOptions<"line"> = createBaseChartOptions();
@@ -1154,29 +1129,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
   return (
     <div className="pb-12">
-      <div className="mb-8 rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(218,208,175,0.055),rgba(255,255,255,0.015))] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {benchmarkStats.map((stat) => (
-            <div key={stat.label} className="rounded-lg border border-white/5 bg-black/20 px-4 py-3">
-              <div className="text-[0.7rem] uppercase tracking-[0.14em] text-muted">{stat.label}</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-100 leading-none">{stat.value}</div>
-              <div className="mt-2 text-xs text-muted leading-snug line-clamp-2">{stat.detail || "—"}</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.8rem] text-muted">
-          <span>
-            <span className="text-zinc-100 font-medium">Latest run</span>{" "}
-            {formatScenarioName(mostRecentRun.scenarioName)} · {formatMonthDayTime(mostRecentRun.timestamp)}
-          </span>
-          {latestRelease ? (
-            <span>
-              <span className="text-zinc-100 font-medium">Latest stable PIE</span>{" "}
-              {latestRelease.label} · {formatMonthDayTime(latestRelease.timestamp)}
-            </span>
-          ) : null}
-        </div>
-      </div>
       <section>
         <div className="flex p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit mb-8">
           {[null, ...modelFamilies].map((family) => (
