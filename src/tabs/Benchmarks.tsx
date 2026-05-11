@@ -36,6 +36,14 @@ type TargetSummary = {
   summary: ReturnType<typeof summarizeBenchmarkRun>;
 };
 
+type DeviceCoverage = {
+  device: string;
+  runCount: number;
+  pointCount: number;
+  targetCount: number;
+  latestTimestamp: string;
+};
+
 const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
   "google/gemma-3-27b-it": {
     family: "Gemma",
@@ -365,6 +373,62 @@ function derivePerformanceTargets(targetSummaries: TargetSummary[]): Performance
     });
 }
 
+function timestampMs(timestamp: string): number {
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function derivePerformanceDeviceCoverage(
+  targetSummaries: TargetSummary[],
+  eligibleRunIds: Set<number>,
+  performanceTargetIds: Set<string>,
+): DeviceCoverage[] {
+  const coverage = new Map<string, {
+    runIds: Set<number>;
+    pointCount: number;
+    targetIds: Set<string>;
+    latestTimestamp: string;
+  }>();
+
+  for (const item of targetSummaries) {
+    if (!eligibleRunIds.has(item.run.id)) continue;
+    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (!performanceTargetIds.has(item.targetName)) continue;
+    if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
+
+    const device = deviceLabel(item.run);
+    const current = coverage.get(device) ?? {
+      runIds: new Set<number>(),
+      pointCount: 0,
+      targetIds: new Set<string>(),
+      latestTimestamp: item.run.timestamp,
+    };
+    current.runIds.add(item.run.id);
+    current.pointCount += 1;
+    current.targetIds.add(item.targetName);
+    if (timestampMs(item.run.timestamp) > timestampMs(current.latestTimestamp)) {
+      current.latestTimestamp = item.run.timestamp;
+    }
+    coverage.set(device, current);
+  }
+
+  return Array.from(coverage.entries())
+    .map(([device, value]) => ({
+      device,
+      runCount: value.runIds.size,
+      pointCount: value.pointCount,
+      targetCount: value.targetIds.size,
+      latestTimestamp: value.latestTimestamp,
+    }))
+    .sort((a, b) =>
+      b.targetCount - a.targetCount ||
+      b.runCount - a.runCount ||
+      b.pointCount - a.pointCount ||
+      timestampMs(b.latestTimestamp) - timestampMs(a.latestTimestamp) ||
+      a.device.localeCompare(b.device),
+    );
+}
+
 function getScoreSurfaceStyle(score: number) {
   const hue = clamp(score, 0, 100) * 1.2;
   return {
@@ -418,6 +482,19 @@ function withReleaseMarkers(
   };
 }
 
+function withoutChartLegend(options: ChartOptions<"line">): ChartOptions<"line"> {
+  return {
+    ...options,
+    plugins: {
+      ...options.plugins,
+      legend: {
+        ...options.plugins?.legend,
+        display: false,
+      },
+    },
+  };
+}
+
 export default function Benchmarks({ data }: BenchmarksProps) {
   if (data.runs.length === 0) {
     return (
@@ -442,8 +519,6 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const mostRecentRun = chronologicalRuns[chronologicalRuns.length - 1];
   const releaseMarkers = releaseMarkersForData(data);
   const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
-
-  const deviceOptions = Array.from(new Set(chronologicalRuns.map(deviceLabel))).sort();
 
   const targetSummaries: TargetSummary[] = [];
   for (const run of chronologicalRuns) {
@@ -492,7 +567,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedPerformanceDevice, setSelectedPerformanceDevice] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<"performance" | "quality">("performance");
   const [selectedQualityScenario, setSelectedQualityScenario] = useState<string | null>(null);
   const [selectedBatchSize, setSelectedBatchSize] = useState<number>(1);
@@ -510,15 +585,21 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     : MODEL_TARGETS.filter((model) => modelMatchesFilters(model, selectedFamilyFilters));
   const visibleModelIds = new Set(visibleModels.map((model) => model.id));
   const visibleRuns = chronologicalRuns.filter((run) => {
-    if (selectedDevice && deviceLabel(run) !== selectedDevice) return false;
     const model = extractModel(run, MODEL_TARGETS);
     return !model || visibleModelIds.has(model.id);
   });
-  const visibleOverviewRuns = chronologicalRuns.filter((run) => {
-    if (selectedDevice && deviceLabel(run) !== selectedDevice) return false;
-    const model = extractModel(run, MODEL_TARGETS);
-    return !model || visibleModelIds.has(model.id);
-  });
+  const visibleRunIds = new Set(visibleRuns.map((run) => run.id));
+  const performanceDeviceCoverage = derivePerformanceDeviceCoverage(targetSummaries, visibleRunIds, performanceTargetIds);
+  const performanceDeviceOptions = performanceDeviceCoverage.map((item) => item.device);
+  const defaultPerformanceDevice = performanceDeviceOptions[0] ?? null;
+  const effectivePerformanceDevice = selectedPerformanceDevice && performanceDeviceOptions.includes(selectedPerformanceDevice)
+    ? selectedPerformanceDevice
+    : defaultPerformanceDevice;
+  const performanceRuns = visibleRuns.filter((run) =>
+    !effectivePerformanceDevice || deviceLabel(run) === effectivePerformanceDevice,
+  );
+  const performanceRunIds = new Set(performanceRuns.map((run) => run.id));
+  const visibleOverviewRuns = performanceRuns;
 
   const familyModels = selectedFamily ? MODEL_TARGETS.filter((model) => model.family === selectedFamily) : MODEL_TARGETS;
   const versionOptions = Array.from(new Set(familyModels.map((model) => model.version))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -528,15 +609,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     .filter((model) => (!selectedVersion || model.version === selectedVersion) && (!selectedSize || model.size === selectedSize))
     .map((model) => model.variant ?? "Base")))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const visibleRunIds = new Set(visibleRuns.map((run) => run.id));
-  const visibleOverviewRunIds = new Set(visibleOverviewRuns.map((run) => run.id));
-
   const validSelectedScenario = selectedQualityScenario && qualityScenarios.includes(selectedQualityScenario) ? selectedQualityScenario : null;
 
   const availableBatchSizes = new Set<number>();
   const availablePromptLengths = new Set<number>();
   for (const item of targetSummaries) {
-    if (!visibleRunIds.has(item.run.id)) continue;
+    if (!performanceRunIds.has(item.run.id)) continue;
     if (item.run.scenarioName === "grid_sweep") {
       for (const aggregate of item.aggregates) {
         let bs: number | null = null;
@@ -576,8 +654,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   }, [selectedFamily, selectedVersion, selectedSize, selectedVariant, variantOptions.join("|")]);
 
   useEffect(() => {
-    if (selectedDevice && !deviceOptions.includes(selectedDevice)) setSelectedDevice(null);
-  }, [selectedDevice, deviceOptions.join("|")]);
+    if (selectedPerformanceDevice && !performanceDeviceOptions.includes(selectedPerformanceDevice)) {
+      setSelectedPerformanceDevice(null);
+    }
+  }, [selectedPerformanceDevice, performanceDeviceOptions.join("|")]);
 
   const latestRelease = releaseMarkers.at(-1);
   const benchmarkStats = [
@@ -781,7 +861,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const performanceData = new Map<string, Map<number, { throughput: number | null; ttft: number | null }>>();
   
   for (const item of targetSummaries) {
-    if (!visibleRunIds.has(item.run.id) && !visibleOverviewRunIds.has(item.run.id)) continue;
+    if (!performanceRunIds.has(item.run.id)) continue;
     if (item.run.scenarioName === "grid_sweep" && performanceTargetIds.has(item.targetName)) {
       if (!performanceData.has(item.targetName)) {
         performanceData.set(item.targetName, new Map());
@@ -801,7 +881,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     }
   }
 
-  const gridSweepRuns = visibleRuns.filter((run) => run.scenarioName === "grid_sweep");
+  const gridSweepRuns = performanceRuns.filter((run) => run.scenarioName === "grid_sweep");
 
   const perfLabels = gridSweepRuns.map((r) => formatMonthDayTime(r.timestamp));
 
@@ -849,53 +929,67 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     ? [selectedFamily, selectedVersion, selectedSize, selectedVariant].filter(Boolean).join(" ")
     : selectedFamily ?? "All models";
   const gridSweepTimestamps = gridSweepRuns.map((run) => run.timestamp);
-  const throughputOptions = withReleaseMarkers(
+  const throughputOptions = withoutChartLegend(withReleaseMarkers(
     createBaseChartOptions(),
     gridSweepTimestamps,
     releaseMarkers,
     true,
+  ));
+  const ttftOptions = withoutChartLegend(withReleaseMarkers(
+    createBaseChartOptions(),
+    gridSweepTimestamps,
+    releaseMarkers,
+    true,
+  ));
+
+  const activePerformanceTargets = performanceTargets.filter((target) =>
+    gridSweepRuns.some((run) => {
+      const point = performanceData.get(target.id)?.get(run.id);
+      return point ? point.throughput !== null || point.ttft !== null : false;
+    }),
   );
-  const ttftOptions = withReleaseMarkers(
-    createBaseChartOptions(),
-    gridSweepTimestamps,
-    releaseMarkers,
-    true,
+
+  const comparisonDeviceControl = performanceDeviceOptions.length > 0 ? (
+    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <span className="shrink-0 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">Device</span>
+      <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-white/5 bg-white/[0.025] p-0.5">
+        {performanceDeviceOptions.map((device) => (
+          <button
+            key={device}
+            onClick={() => setSelectedPerformanceDevice(device)}
+            className={cx(
+              "shrink-0 px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all whitespace-nowrap",
+              effectivePerformanceDevice === device
+                ? "bg-white/10 text-white shadow-sm"
+                : "text-muted hover:text-zinc-300 hover:bg-white/5",
+            )}
+          >
+            {device}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  const engineLegend = (targets: PerformanceTarget[]) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {targets.map((engine) => (
+        <div key={engine.id} className="flex items-center gap-2 text-[0.78rem] text-muted">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: engine.color }} />
+          {engine.name}
+        </div>
+      ))}
+      {releaseMarkers.length > 0 ? (
+        <div className="flex items-center gap-2 text-[0.78rem] text-muted">
+          <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
+          Stable PIE releases
+        </div>
+      ) : null}
+    </div>
   );
 
   const filterActions = (
     <div className="flex flex-wrap items-center justify-center gap-4 mt-4 px-1">
-      {deviceOptions.length > 1 && (
-        <div className="flex items-center gap-2">
-          <span className="text-[0.75rem] text-muted font-medium">Device</span>
-          <div className="flex p-0.5 bg-white/[0.02] border border-white/5 rounded-lg">
-            <button
-              onClick={() => setSelectedDevice(null)}
-              className={cx(
-                "px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all",
-                selectedDevice === null
-                  ? "bg-white/10 text-white shadow-sm"
-                  : "text-muted hover:text-zinc-300 hover:bg-white/5",
-              )}
-            >
-              All
-            </button>
-            {deviceOptions.map((device) => (
-              <button
-                key={device}
-                onClick={() => setSelectedDevice(device)}
-                className={cx(
-                  "px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all whitespace-nowrap",
-                  selectedDevice === device
-                    ? "bg-white/10 text-white shadow-sm"
-                    : "text-muted hover:text-zinc-300 hover:bg-white/5",
-                )}
-              >
-                {device}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       {selectedFamily && versionOptions.length > 1 && (
         <div className="flex items-center gap-2">
           <span className="text-[0.75rem] text-muted font-medium">Version</span>
@@ -1149,26 +1243,16 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               !hasSpecificModelSelection ? (
                 <div>
                   <div className="mb-6 px-1 flex flex-col gap-3">
-                    <div>
-                      <h3 className="text-[1.1rem] font-semibold text-zinc-100">
-                        {selectedFamily ? `${selectedFamily} Performance` : "All Models Performance"}
-                      </h3>
-                      <p className="text-sm text-muted mt-1">Select a model below to view detailed engine comparison.</p>
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <h3 className="text-[1.1rem] font-semibold text-zinc-100">
+                          {selectedFamily ? `${selectedFamily} Performance` : "All Models Performance"}
+                        </h3>
+                        <p className="text-sm text-muted mt-1">Select a model below to view detailed engine comparison.</p>
+                      </div>
+                      {comparisonDeviceControl}
                     </div>
-                    <div className="flex flex-wrap items-center gap-4">
-                      {performanceTargets.map((engine) => (
-                        <div key={engine.id} className="flex items-center gap-2 text-[0.85rem] text-muted">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: engine.color }} />
-                          {engine.name}
-                        </div>
-                      ))}
-                      {releaseMarkers.length > 0 ? (
-                        <div className="flex items-center gap-2 text-[0.85rem] text-muted">
-                          <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
-                          Stable PIE releases
-                        </div>
-                      ) : null}
-                    </div>
+                    {engineLegend(activePerformanceTargets)}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
                     {visibleModels.map((model) => {
@@ -1262,6 +1346,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                     </div>
                   ) : (
                     <>
+                      <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-white/[0.018] px-3 py-3 lg:flex-row lg:items-start lg:justify-between">
+                        {comparisonDeviceControl}
+                        {engineLegend(activePerformanceTargets)}
+                      </div>
                       <div className="grid gap-6 xl:grid-cols-2 flex-1">
                         <ChartCard
                           title="Throughput"
