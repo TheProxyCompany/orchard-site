@@ -2,7 +2,7 @@ import { useState, useEffect } from "preact/hooks";
 import type { ChartData, ChartOptions } from "chart.js";
 import ChartCard from "../components/ChartCard";
 import { summarizeBenchmarkRun } from "../lib/analytics";
-import { createBaseChartOptions } from "../lib/chart";
+import { createBaseChartOptions, releaseMarkersPlugin, type ReleaseMarker } from "../lib/chart";
 import { clamp, formatMonthDayTime, formatPercent, cx } from "../lib/format";
 import type { BenchmarkAggregate, BenchmarksTabData } from "../types";
 
@@ -110,6 +110,7 @@ const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
 };
 
 const AUTO_COLORS = ["#f97316", "#ec4899", "#14b8a6", "#6366f1", "#f43f5e", "#a855f7", "#06b6d4"];
+const RELEASE_CHART_PLUGINS = [releaseMarkersPlugin];
 
 const DEFAULT_MODEL_BY_FAMILY: Record<string, string> = {
   Gemma: "google/gemma-4-26B-A4B-it",
@@ -325,6 +326,38 @@ function getScoreValueStyle(score: number) {
   return { color: `hsla(${hue}, 90%, 80%, 1)` };
 }
 
+function releaseLabel(version: string, channel: string): string {
+  return channel === "stable" ? version : `${version} ${channel}`;
+}
+
+function releaseMarkersForData(data: BenchmarksTabData): ReleaseMarker[] {
+  return (data.releases ?? []).map((release) => ({
+    timestamp: release.createdAt,
+    label: releaseLabel(release.version, release.channel),
+    channel: release.channel,
+  }));
+}
+
+function withReleaseMarkers(
+  options: ChartOptions<"line">,
+  timestamps: string[],
+  markers: ReleaseMarker[],
+  showLabels = false,
+): ChartOptions<"line"> {
+  if (markers.length === 0 || timestamps.length === 0) return options;
+  return {
+    ...options,
+    plugins: {
+      ...options.plugins,
+      releaseMarkers: {
+        markers,
+        timestamps,
+        showLabels,
+      },
+    },
+  };
+}
+
 export default function Benchmarks({ data }: BenchmarksProps) {
   if (data.runs.length === 0) {
     return (
@@ -346,6 +379,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   });
 
   const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const releaseMarkers = releaseMarkersForData(data);
+  const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
 
   const deviceOptions = Array.from(new Set(chronologicalRuns.map(deviceLabel))).sort();
 
@@ -493,6 +528,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
     if (validSelectedScenario) {
       const scenarioRuns = visibleRuns.filter((run) => run.scenarioName === validSelectedScenario);
+      const scenarioTimestamps = scenarioRuns.map((run) => run.timestamp);
       const chartData: ChartData<"line"> = {
         labels: scenarioRuns.map((run) => formatMonthDayTime(run.timestamp)),
         datasets: visibleModels.map((target) => {
@@ -512,6 +548,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
           };
         }),
       };
+      const chartOptions = withReleaseMarkers(options, scenarioTimestamps, releaseMarkers, true);
 
       return (
         <div className="flex flex-col gap-4 h-full">
@@ -529,7 +566,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
             subtext={`Historical scores for ${selectedLabel} on ${formatScenarioName(validSelectedScenario)}.`}
             type="line"
             data={chartData}
-            options={options}
+            options={chartOptions}
+            plugins={releaseChartPlugins}
             className="flex-1"
             heightClassName="h-[24rem] lg:h-[38rem]"
           />
@@ -557,6 +595,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                 {target.name}
               </div>
             ))}
+            {releaseMarkers.length > 0 ? (
+              <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+                <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
+                PIE releases
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
@@ -606,6 +650,11 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               },
               maintainAspectRatio: false,
             };
+            const sparklineOptionsWithMarkers = withReleaseMarkers(
+              sparklineOptions,
+              scenarioRuns.map((run) => run.timestamp),
+              releaseMarkers,
+            );
 
             const actions = latestScore !== null ? (
               <div
@@ -629,7 +678,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                   actions={actions}
                   type="line"
                   data={sparklineData}
-                  options={sparklineOptions}
+                  options={sparklineOptionsWithMarkers}
+                  plugins={releaseChartPlugins}
                   className="h-full bg-white/[0.015] group-hover:border-white/10 transition-colors pointer-events-none"
                   heightClassName="h-36"
                 />
@@ -711,6 +761,19 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const currentModelName = hasSpecificModelSelection
     ? [selectedFamily, selectedVersion, selectedSize, selectedVariant].filter(Boolean).join(" ")
     : selectedFamily ?? "All models";
+  const gridSweepTimestamps = gridSweepRuns.map((run) => run.timestamp);
+  const throughputOptions = withReleaseMarkers(
+    createBaseChartOptions(),
+    gridSweepTimestamps,
+    releaseMarkers,
+    true,
+  );
+  const ttftOptions = withReleaseMarkers(
+    createBaseChartOptions(),
+    gridSweepTimestamps,
+    releaseMarkers,
+    true,
+  );
 
   const filterActions = (
     <div className="flex flex-wrap items-center justify-center gap-4 mt-4 px-1">
@@ -989,6 +1052,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                           {engine.name}
                         </div>
                       ))}
+                      {releaseMarkers.length > 0 ? (
+                        <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+                          <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
+                          PIE releases
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
@@ -999,6 +1068,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                       if (modelGridSweepRuns.length === 0) return null;
 
                       const sparkLabels = modelGridSweepRuns.map(r => formatMonthDayTime(r.timestamp));
+                      const sparkTimestamps = modelGridSweepRuns.map(r => r.timestamp);
 
                       const sparklineData: ChartData<"line"> = {
                         labels: sparkLabels,
@@ -1028,6 +1098,11 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                         },
                         maintainAspectRatio: false,
                       };
+                      const sparklineOptionsWithMarkers = withReleaseMarkers(
+                        sparklineOptions,
+                        sparkTimestamps,
+                        releaseMarkers,
+                      );
 
                       return (
                         <div
@@ -1046,7 +1121,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                             subtext="Throughput (tok/s) · Batch 1"
                             type="line"
                             data={sparklineData}
-                            options={sparklineOptions}
+                            options={sparklineOptionsWithMarkers}
+                            plugins={releaseChartPlugins}
                             className="h-full bg-white/[0.015] group-hover:border-white/10 transition-colors pointer-events-none"
                             heightClassName="h-36"
                           />
@@ -1082,14 +1158,16 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                           subtext={`Tokens per second over time. ${currentModelName}. Higher is better.`}
                           type="line"
                           data={throughputData}
-                          options={createBaseChartOptions()}
+                          options={throughputOptions}
+                          plugins={releaseChartPlugins}
                         />
                         <ChartCard
                           title="Time to First Token"
                           subtext={`TTFT in milliseconds. ${currentModelName}. Lower is better.`}
                           type="line"
                           data={ttftData}
-                          options={createBaseChartOptions()}
+                          options={ttftOptions}
+                          plugins={releaseChartPlugins}
                         />
                       </div>
                       {filterActions}
