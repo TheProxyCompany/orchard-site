@@ -3,7 +3,7 @@ import type { ChartData, ChartOptions } from "chart.js";
 import ChartCard from "../components/ChartCard";
 import { summarizeBenchmarkRun } from "../lib/analytics";
 import { createBaseChartOptions, releaseMarkersPlugin, type ReleaseMarker } from "../lib/chart";
-import { clamp, formatMonthDayTime, formatPercent, cx } from "../lib/format";
+import { clamp, formatMonthDayTime, formatNumber, formatPercent, cx } from "../lib/format";
 import type { BenchmarkAggregate, BenchmarksTabData } from "../types";
 
 type BenchmarksProps = {
@@ -21,6 +21,19 @@ type ModelTarget = {
   name: string;
   shortName: string;
   color: string;
+};
+
+type PerformanceTarget = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type TargetSummary = {
+  run: BenchmarksTabData["runs"][number];
+  targetName: string;
+  aggregates: BenchmarkAggregate[];
+  summary: ReturnType<typeof summarizeBenchmarkRun>;
 };
 
 const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
@@ -233,11 +246,20 @@ function normalizeDeviceLabel(label: string): string {
   return withoutMemory || "Unknown device";
 }
 
-const PERFORMANCE_TARGETS = [
-  { id: "orchard_native", name: "Orchard", color: "#d4a853" },
-  { id: "llama_cpp_native", name: "llama.cpp", color: "#818cf8" },
-  { id: "mlx_native", name: "MLX", color: "#4ade80" },
-];
+const KNOWN_PERFORMANCE_TARGETS: Record<string, Omit<PerformanceTarget, "id">> = {
+  orchard_native: { name: "Orchard", color: "#d4a853" },
+  llama_cpp_native: { name: "llama.cpp", color: "#818cf8" },
+  mlx_native: { name: "MLX", color: "#4ade80" },
+  omlx: { name: "oMLX", color: "#38bdf8" },
+  aphrodite: { name: "Aphrodite", color: "#f97316" },
+  vllm_metal: { name: "vLLM Metal", color: "#a78bfa" },
+  vmlx_native: { name: "vMLX", color: "#f472b6" },
+  ollama_native: { name: "Ollama", color: "#22c55e" },
+  openrouter: { name: "OpenRouter", color: "#facc15" },
+};
+
+const PERFORMANCE_TARGET_ORDER = Object.keys(KNOWN_PERFORMANCE_TARGETS);
+const AUTO_TARGET_COLORS = ["#06b6d4", "#fb7185", "#84cc16", "#c084fc", "#2dd4bf", "#f59e0b"];
 
 const SCENARIO_ORDER = [
   "mmlu_pro",
@@ -310,6 +332,37 @@ function representativeModels(targets: ModelTarget[], runs: BenchmarksTabData["r
     representatives.push(familyTargets.find((target) => target.id === preferredId) ?? familyTargets[0]);
   }
   return representatives;
+}
+
+function formatTargetName(targetName: string): string {
+  return titleCase(targetName.replace(/_native$/, "").replace(/_/g, " "));
+}
+
+function derivePerformanceTargets(targetSummaries: TargetSummary[]): PerformanceTarget[] {
+  const targetIds = new Set<string>();
+  for (const item of targetSummaries) {
+    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
+    targetIds.add(item.targetName);
+  }
+
+  return Array.from(targetIds)
+    .sort((a, b) => {
+      const ai = PERFORMANCE_TARGET_ORDER.indexOf(a);
+      const bi = PERFORMANCE_TARGET_ORDER.indexOf(b);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return a.localeCompare(b);
+    })
+    .map((id, index) => {
+      const known = KNOWN_PERFORMANCE_TARGETS[id];
+      return {
+        id,
+        name: known?.name ?? formatTargetName(id),
+        color: known?.color ?? AUTO_TARGET_COLORS[index % AUTO_TARGET_COLORS.length],
+      };
+    });
 }
 
 function getScoreSurfaceStyle(score: number) {
@@ -386,12 +439,13 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   });
 
   const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const mostRecentRun = chronologicalRuns[chronologicalRuns.length - 1];
   const releaseMarkers = releaseMarkersForData(data);
   const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
 
   const deviceOptions = Array.from(new Set(chronologicalRuns.map(deviceLabel))).sort();
 
-  const targetSummaries = [];
+  const targetSummaries: TargetSummary[] = [];
   for (const run of chronologicalRuns) {
     const aggregatesByTarget = new Map<string, BenchmarkAggregate[]>();
     for (const aggregate of run.aggregates) {
@@ -408,6 +462,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       });
     }
   }
+  const performanceTargets = derivePerformanceTargets(targetSummaries);
+  const performanceTargetIds = new Set(performanceTargets.map((target) => target.id));
 
   const qualityData = new Map<string, Map<string, { runId: number; score: number }[]>>();
   for (const item of targetSummaries) {
@@ -522,6 +578,30 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   useEffect(() => {
     if (selectedDevice && !deviceOptions.includes(selectedDevice)) setSelectedDevice(null);
   }, [selectedDevice, deviceOptions.join("|")]);
+
+  const latestRelease = releaseMarkers.at(-1);
+  const benchmarkStats = [
+    {
+      label: "Captured runs",
+      value: formatNumber(data.runs.length, 0),
+      detail: `${formatNumber(data.days, 0)} day window`,
+    },
+    {
+      label: "Engine targets",
+      value: formatNumber(performanceTargets.length, 0),
+      detail: performanceTargets.map((target) => target.name).join(", "),
+    },
+    {
+      label: "Tracked models",
+      value: formatNumber(MODEL_TARGETS.length, 0),
+      detail: modelFamilies.join(", "),
+    },
+    {
+      label: "Quality scenarios",
+      value: formatNumber(qualityScenarios.length, 0),
+      detail: qualityScenarios.slice(0, 3).map(formatScenarioName).join(", "),
+    },
+  ];
 
   const renderQualityChart = () => {
     const options: ChartOptions<"line"> = createBaseChartOptions();
@@ -702,7 +782,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   
   for (const item of targetSummaries) {
     if (!visibleRunIds.has(item.run.id) && !visibleOverviewRunIds.has(item.run.id)) continue;
-    if (item.run.scenarioName === "grid_sweep" && PERFORMANCE_TARGETS.some((t) => t.id === item.targetName)) {
+    if (item.run.scenarioName === "grid_sweep" && performanceTargetIds.has(item.targetName)) {
       if (!performanceData.has(item.targetName)) {
         performanceData.set(item.targetName, new Map());
       }
@@ -729,7 +809,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   let ttftDatasets: ChartData<"line">["datasets"] = [];
 
   if (selectedFamily) {
-    for (const target of PERFORMANCE_TARGETS) {
+    for (const target of performanceTargets) {
       const throughput = gridSweepRuns.map((r) => performanceData.get(target.id)?.get(r.id)?.throughput ?? null);
       const ttft = gridSweepRuns.map((r) => performanceData.get(target.id)?.get(r.id)?.ttft ?? null);
       if (!throughput.some((v) => v !== null) && !ttft.some((v) => v !== null)) continue;
@@ -980,6 +1060,29 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
   return (
     <div className="pb-12">
+      <div className="mb-8 rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(218,208,175,0.055),rgba(255,255,255,0.015))] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {benchmarkStats.map((stat) => (
+            <div key={stat.label} className="rounded-lg border border-white/5 bg-black/20 px-4 py-3">
+              <div className="text-[0.7rem] uppercase tracking-[0.14em] text-muted">{stat.label}</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-100 leading-none">{stat.value}</div>
+              <div className="mt-2 text-xs text-muted leading-snug line-clamp-2">{stat.detail || "—"}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.8rem] text-muted">
+          <span>
+            <span className="text-zinc-100 font-medium">Latest run</span>{" "}
+            {formatScenarioName(mostRecentRun.scenarioName)} · {formatMonthDayTime(mostRecentRun.timestamp)}
+          </span>
+          {latestRelease ? (
+            <span>
+              <span className="text-zinc-100 font-medium">Latest stable PIE</span>{" "}
+              {latestRelease.label} · {formatMonthDayTime(latestRelease.timestamp)}
+            </span>
+          ) : null}
+        </div>
+      </div>
       <section>
         <div className="flex p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit mb-8">
           {[null, ...modelFamilies].map((family) => (
@@ -1053,7 +1156,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                       <p className="text-sm text-muted mt-1">Select a model below to view detailed engine comparison.</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-4">
-                      {PERFORMANCE_TARGETS.map((engine) => (
+                      {performanceTargets.map((engine) => (
                         <div key={engine.id} className="flex items-center gap-2 text-[0.85rem] text-muted">
                           <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: engine.color }} />
                           {engine.name}
@@ -1079,7 +1182,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
                       const sparklineData: ChartData<"line"> = {
                         labels: sparkLabels,
-                        datasets: PERFORMANCE_TARGETS.map((engine) => ({
+                        datasets: performanceTargets.map((engine) => ({
                           label: engine.name,
                           data: modelGridSweepRuns.map(r => performanceData.get(engine.id)?.get(r.id)?.throughput ?? null),
                           borderColor: engine.color,
