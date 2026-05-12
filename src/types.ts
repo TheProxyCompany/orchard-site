@@ -114,9 +114,21 @@ export type BenchmarkRun = {
   aggregates: BenchmarkAggregate[];
 };
 
+export type BenchmarkRelease = {
+  id: string;
+  version: string;
+  channel: string;
+  createdAt: string;
+  artifactName: string;
+  downloadUrl: string;
+  releaseNotes: string | null;
+  sha256: string | null;
+};
+
 export type BenchmarksTabData = {
   runs: BenchmarkRun[];
   overviewRuns: BenchmarkRun[];
+  releases?: BenchmarkRelease[];
   days: number;
 };
 

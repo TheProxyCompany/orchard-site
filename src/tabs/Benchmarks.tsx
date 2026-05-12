@@ -2,7 +2,7 @@ import { useState, useEffect } from "preact/hooks";
 import type { ChartData, ChartOptions } from "chart.js";
 import ChartCard from "../components/ChartCard";
 import { summarizeBenchmarkRun } from "../lib/analytics";
-import { createBaseChartOptions } from "../lib/chart";
+import { createBaseChartOptions, releaseMarkersPlugin, type ReleaseMarker } from "../lib/chart";
 import { clamp, formatMonthDayTime, formatPercent, cx } from "../lib/format";
 import type { BenchmarkAggregate, BenchmarksTabData } from "../types";
 
@@ -21,6 +21,27 @@ type ModelTarget = {
   name: string;
   shortName: string;
   color: string;
+};
+
+type PerformanceTarget = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type TargetSummary = {
+  run: BenchmarksTabData["runs"][number];
+  targetName: string;
+  aggregates: BenchmarkAggregate[];
+  summary: ReturnType<typeof summarizeBenchmarkRun>;
+};
+
+type DeviceCoverage = {
+  device: string;
+  runCount: number;
+  pointCount: number;
+  targetCount: number;
+  latestTimestamp: string;
 };
 
 const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
@@ -110,6 +131,7 @@ const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
 };
 
 const AUTO_COLORS = ["#f97316", "#ec4899", "#14b8a6", "#6366f1", "#f43f5e", "#a855f7", "#06b6d4"];
+const RELEASE_CHART_PLUGINS = [releaseMarkersPlugin];
 
 const DEFAULT_MODEL_BY_FAMILY: Record<string, string> = {
   Gemma: "google/gemma-4-26B-A4B-it",
@@ -232,11 +254,20 @@ function normalizeDeviceLabel(label: string): string {
   return withoutMemory || "Unknown device";
 }
 
-const PERFORMANCE_TARGETS = [
-  { id: "orchard_native", name: "Orchard", color: "#d4a853" },
-  { id: "llama_cpp_native", name: "llama.cpp", color: "#818cf8" },
-  { id: "mlx_native", name: "MLX", color: "#4ade80" },
-];
+const KNOWN_PERFORMANCE_TARGETS: Record<string, Omit<PerformanceTarget, "id">> = {
+  orchard_native: { name: "Orchard", color: "#d4a853" },
+  llama_cpp_native: { name: "llama.cpp", color: "#818cf8" },
+  mlx_native: { name: "MLX", color: "#4ade80" },
+  omlx: { name: "oMLX", color: "#38bdf8" },
+  aphrodite: { name: "Aphrodite", color: "#f97316" },
+  vllm_metal: { name: "vLLM Metal", color: "#a78bfa" },
+  vmlx_native: { name: "vMLX", color: "#f472b6" },
+  ollama_native: { name: "Ollama", color: "#22c55e" },
+  openrouter: { name: "OpenRouter", color: "#facc15" },
+};
+
+const PERFORMANCE_TARGET_ORDER = Object.keys(KNOWN_PERFORMANCE_TARGETS);
+const AUTO_TARGET_COLORS = ["#06b6d4", "#fb7185", "#84cc16", "#c084fc", "#2dd4bf", "#f59e0b"];
 
 const SCENARIO_ORDER = [
   "mmlu_pro",
@@ -311,6 +342,93 @@ function representativeModels(targets: ModelTarget[], runs: BenchmarksTabData["r
   return representatives;
 }
 
+function formatTargetName(targetName: string): string {
+  return titleCase(targetName.replace(/_native$/, "").replace(/_/g, " "));
+}
+
+function derivePerformanceTargets(targetSummaries: TargetSummary[]): PerformanceTarget[] {
+  const targetIds = new Set<string>();
+  for (const item of targetSummaries) {
+    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
+    targetIds.add(item.targetName);
+  }
+
+  return Array.from(targetIds)
+    .sort((a, b) => {
+      const ai = PERFORMANCE_TARGET_ORDER.indexOf(a);
+      const bi = PERFORMANCE_TARGET_ORDER.indexOf(b);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return a.localeCompare(b);
+    })
+    .map((id, index) => {
+      const known = KNOWN_PERFORMANCE_TARGETS[id];
+      return {
+        id,
+        name: known?.name ?? formatTargetName(id),
+        color: known?.color ?? AUTO_TARGET_COLORS[index % AUTO_TARGET_COLORS.length],
+      };
+    });
+}
+
+function timestampMs(timestamp: string): number {
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function derivePerformanceDeviceCoverage(
+  targetSummaries: TargetSummary[],
+  eligibleRunIds: Set<number>,
+  performanceTargetIds: Set<string>,
+): DeviceCoverage[] {
+  const coverage = new Map<string, {
+    runIds: Set<number>;
+    pointCount: number;
+    targetIds: Set<string>;
+    latestTimestamp: string;
+  }>();
+
+  for (const item of targetSummaries) {
+    if (!eligibleRunIds.has(item.run.id)) continue;
+    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (!performanceTargetIds.has(item.targetName)) continue;
+    if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
+
+    const device = deviceLabel(item.run);
+    const current = coverage.get(device) ?? {
+      runIds: new Set<number>(),
+      pointCount: 0,
+      targetIds: new Set<string>(),
+      latestTimestamp: item.run.timestamp,
+    };
+    current.runIds.add(item.run.id);
+    current.pointCount += 1;
+    current.targetIds.add(item.targetName);
+    if (timestampMs(item.run.timestamp) > timestampMs(current.latestTimestamp)) {
+      current.latestTimestamp = item.run.timestamp;
+    }
+    coverage.set(device, current);
+  }
+
+  return Array.from(coverage.entries())
+    .map(([device, value]) => ({
+      device,
+      runCount: value.runIds.size,
+      pointCount: value.pointCount,
+      targetCount: value.targetIds.size,
+      latestTimestamp: value.latestTimestamp,
+    }))
+    .sort((a, b) =>
+      b.targetCount - a.targetCount ||
+      b.runCount - a.runCount ||
+      b.pointCount - a.pointCount ||
+      timestampMs(b.latestTimestamp) - timestampMs(a.latestTimestamp) ||
+      a.device.localeCompare(b.device),
+    );
+}
+
 function getScoreSurfaceStyle(score: number) {
   const hue = clamp(score, 0, 100) * 1.2;
   return {
@@ -323,6 +441,58 @@ function getScoreSurfaceStyle(score: number) {
 function getScoreValueStyle(score: number) {
   const hue = clamp(score, 0, 100) * 1.2;
   return { color: `hsla(${hue}, 90%, 80%, 1)` };
+}
+
+function releaseLabel(version: string, channel: string): string {
+  return channel === "stable" ? version : `${version} ${channel}`;
+}
+
+function isStablePieRelease(release: NonNullable<BenchmarksTabData["releases"]>[number]): boolean {
+  const channel = (release.channel || "stable").toLowerCase();
+  return channel === "stable" && release.artifactName.startsWith("pie-v");
+}
+
+function releaseMarkersForData(data: BenchmarksTabData): ReleaseMarker[] {
+  return (data.releases ?? [])
+    .filter(isStablePieRelease)
+    .map((release) => ({
+      timestamp: release.createdAt,
+      label: releaseLabel(release.version, release.channel),
+      channel: release.channel,
+    }));
+}
+
+function withReleaseMarkers(
+  options: ChartOptions<"line">,
+  timestamps: string[],
+  markers: ReleaseMarker[],
+  showLabels = false,
+): ChartOptions<"line"> {
+  if (markers.length === 0 || timestamps.length === 0) return options;
+  return {
+    ...options,
+    plugins: {
+      ...options.plugins,
+      releaseMarkers: {
+        markers,
+        timestamps,
+        showLabels,
+      },
+    },
+  };
+}
+
+function withoutChartLegend(options: ChartOptions<"line">): ChartOptions<"line"> {
+  return {
+    ...options,
+    plugins: {
+      ...options.plugins,
+      legend: {
+        ...options.plugins?.legend,
+        display: false,
+      },
+    },
+  };
 }
 
 export default function Benchmarks({ data }: BenchmarksProps) {
@@ -346,10 +516,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   });
 
   const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const releaseMarkers = releaseMarkersForData(data);
+  const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
 
-  const deviceOptions = Array.from(new Set(chronologicalRuns.map(deviceLabel))).sort();
-
-  const targetSummaries = [];
+  const targetSummaries: TargetSummary[] = [];
   for (const run of chronologicalRuns) {
     const aggregatesByTarget = new Map<string, BenchmarkAggregate[]>();
     for (const aggregate of run.aggregates) {
@@ -366,6 +536,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       });
     }
   }
+  const performanceTargets = derivePerformanceTargets(targetSummaries);
+  const performanceTargetIds = new Set(performanceTargets.map((target) => target.id));
 
   const qualityData = new Map<string, Map<string, { runId: number; score: number }[]>>();
   for (const item of targetSummaries) {
@@ -394,7 +566,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedPerformanceDevice, setSelectedPerformanceDevice] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<"performance" | "quality">("performance");
   const [selectedQualityScenario, setSelectedQualityScenario] = useState<string | null>(null);
   const [selectedBatchSize, setSelectedBatchSize] = useState<number>(1);
@@ -412,15 +584,21 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     : MODEL_TARGETS.filter((model) => modelMatchesFilters(model, selectedFamilyFilters));
   const visibleModelIds = new Set(visibleModels.map((model) => model.id));
   const visibleRuns = chronologicalRuns.filter((run) => {
-    if (selectedDevice && deviceLabel(run) !== selectedDevice) return false;
     const model = extractModel(run, MODEL_TARGETS);
     return !model || visibleModelIds.has(model.id);
   });
-  const visibleOverviewRuns = chronologicalRuns.filter((run) => {
-    if (selectedDevice && deviceLabel(run) !== selectedDevice) return false;
-    const model = extractModel(run, MODEL_TARGETS);
-    return !model || visibleModelIds.has(model.id);
-  });
+  const visibleRunIds = new Set(visibleRuns.map((run) => run.id));
+  const performanceDeviceCoverage = derivePerformanceDeviceCoverage(targetSummaries, visibleRunIds, performanceTargetIds);
+  const performanceDeviceOptions = performanceDeviceCoverage.map((item) => item.device);
+  const defaultPerformanceDevice = performanceDeviceOptions[0] ?? null;
+  const effectivePerformanceDevice = selectedPerformanceDevice && performanceDeviceOptions.includes(selectedPerformanceDevice)
+    ? selectedPerformanceDevice
+    : defaultPerformanceDevice;
+  const performanceRuns = visibleRuns.filter((run) =>
+    !effectivePerformanceDevice || deviceLabel(run) === effectivePerformanceDevice,
+  );
+  const performanceRunIds = new Set(performanceRuns.map((run) => run.id));
+  const visibleOverviewRuns = performanceRuns;
 
   const familyModels = selectedFamily ? MODEL_TARGETS.filter((model) => model.family === selectedFamily) : MODEL_TARGETS;
   const versionOptions = Array.from(new Set(familyModels.map((model) => model.version))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -430,15 +608,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     .filter((model) => (!selectedVersion || model.version === selectedVersion) && (!selectedSize || model.size === selectedSize))
     .map((model) => model.variant ?? "Base")))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const visibleRunIds = new Set(visibleRuns.map((run) => run.id));
-  const visibleOverviewRunIds = new Set(visibleOverviewRuns.map((run) => run.id));
-
   const validSelectedScenario = selectedQualityScenario && qualityScenarios.includes(selectedQualityScenario) ? selectedQualityScenario : null;
 
   const availableBatchSizes = new Set<number>();
   const availablePromptLengths = new Set<number>();
   for (const item of targetSummaries) {
-    if (!visibleRunIds.has(item.run.id)) continue;
+    if (!performanceRunIds.has(item.run.id)) continue;
     if (item.run.scenarioName === "grid_sweep") {
       for (const aggregate of item.aggregates) {
         let bs: number | null = null;
@@ -478,8 +653,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   }, [selectedFamily, selectedVersion, selectedSize, selectedVariant, variantOptions.join("|")]);
 
   useEffect(() => {
-    if (selectedDevice && !deviceOptions.includes(selectedDevice)) setSelectedDevice(null);
-  }, [selectedDevice, deviceOptions.join("|")]);
+    if (selectedPerformanceDevice && !performanceDeviceOptions.includes(selectedPerformanceDevice)) {
+      setSelectedPerformanceDevice(null);
+    }
+  }, [selectedPerformanceDevice, performanceDeviceOptions.join("|")]);
 
   const renderQualityChart = () => {
     const options: ChartOptions<"line"> = createBaseChartOptions();
@@ -493,6 +670,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
     if (validSelectedScenario) {
       const scenarioRuns = visibleRuns.filter((run) => run.scenarioName === validSelectedScenario);
+      const scenarioTimestamps = scenarioRuns.map((run) => run.timestamp);
       const chartData: ChartData<"line"> = {
         labels: scenarioRuns.map((run) => formatMonthDayTime(run.timestamp)),
         datasets: visibleModels.map((target) => {
@@ -512,6 +690,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
           };
         }),
       };
+      const chartOptions = withReleaseMarkers(options, scenarioTimestamps, releaseMarkers, true);
 
       return (
         <div className="flex flex-col gap-4 h-full">
@@ -529,7 +708,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
             subtext={`Historical scores for ${selectedLabel} on ${formatScenarioName(validSelectedScenario)}.`}
             type="line"
             data={chartData}
-            options={options}
+            options={chartOptions}
+            plugins={releaseChartPlugins}
             className="flex-1"
             heightClassName="h-[24rem] lg:h-[38rem]"
           />
@@ -557,6 +737,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                 {target.name}
               </div>
             ))}
+            {releaseMarkers.length > 0 ? (
+              <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+                <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
+                Stable PIE releases
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
@@ -606,6 +792,11 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               },
               maintainAspectRatio: false,
             };
+            const sparklineOptionsWithMarkers = withReleaseMarkers(
+              sparklineOptions,
+              scenarioRuns.map((run) => run.timestamp),
+              releaseMarkers,
+            );
 
             const actions = latestScore !== null ? (
               <div
@@ -629,7 +820,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                   actions={actions}
                   type="line"
                   data={sparklineData}
-                  options={sparklineOptions}
+                  options={sparklineOptionsWithMarkers}
+                  plugins={releaseChartPlugins}
                   className="h-full bg-white/[0.015] group-hover:border-white/10 transition-colors pointer-events-none"
                   heightClassName="h-36"
                 />
@@ -644,8 +836,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const performanceData = new Map<string, Map<number, { throughput: number | null; ttft: number | null }>>();
   
   for (const item of targetSummaries) {
-    if (!visibleRunIds.has(item.run.id) && !visibleOverviewRunIds.has(item.run.id)) continue;
-    if (item.run.scenarioName === "grid_sweep" && PERFORMANCE_TARGETS.some((t) => t.id === item.targetName)) {
+    if (!performanceRunIds.has(item.run.id)) continue;
+    if (item.run.scenarioName === "grid_sweep" && performanceTargetIds.has(item.targetName)) {
       if (!performanceData.has(item.targetName)) {
         performanceData.set(item.targetName, new Map());
       }
@@ -664,7 +856,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     }
   }
 
-  const gridSweepRuns = visibleRuns.filter((run) => run.scenarioName === "grid_sweep");
+  const gridSweepRuns = performanceRuns.filter((run) => run.scenarioName === "grid_sweep");
 
   const perfLabels = gridSweepRuns.map((r) => formatMonthDayTime(r.timestamp));
 
@@ -672,7 +864,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   let ttftDatasets: ChartData<"line">["datasets"] = [];
 
   if (selectedFamily) {
-    for (const target of PERFORMANCE_TARGETS) {
+    for (const target of performanceTargets) {
       const throughput = gridSweepRuns.map((r) => performanceData.get(target.id)?.get(r.id)?.throughput ?? null);
       const ttft = gridSweepRuns.map((r) => performanceData.get(target.id)?.get(r.id)?.ttft ?? null);
       if (!throughput.some((v) => v !== null) && !ttft.some((v) => v !== null)) continue;
@@ -711,41 +903,68 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const currentModelName = hasSpecificModelSelection
     ? [selectedFamily, selectedVersion, selectedSize, selectedVariant].filter(Boolean).join(" ")
     : selectedFamily ?? "All models";
+  const gridSweepTimestamps = gridSweepRuns.map((run) => run.timestamp);
+  const throughputOptions = withoutChartLegend(withReleaseMarkers(
+    createBaseChartOptions(),
+    gridSweepTimestamps,
+    releaseMarkers,
+    true,
+  ));
+  const ttftOptions = withoutChartLegend(withReleaseMarkers(
+    createBaseChartOptions(),
+    gridSweepTimestamps,
+    releaseMarkers,
+    true,
+  ));
+
+  const activePerformanceTargets = performanceTargets.filter((target) =>
+    gridSweepRuns.some((run) => {
+      const point = performanceData.get(target.id)?.get(run.id);
+      return point ? point.throughput !== null || point.ttft !== null : false;
+    }),
+  );
+
+  const comparisonDeviceControl = performanceDeviceOptions.length > 0 ? (
+    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <span className="shrink-0 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">Device</span>
+      <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-white/5 bg-white/[0.025] p-0.5">
+        {performanceDeviceOptions.map((device) => (
+          <button
+            key={device}
+            onClick={() => setSelectedPerformanceDevice(device)}
+            className={cx(
+              "shrink-0 px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all whitespace-nowrap",
+              effectivePerformanceDevice === device
+                ? "bg-white/10 text-white shadow-sm"
+                : "text-muted hover:text-zinc-300 hover:bg-white/5",
+            )}
+          >
+            {device}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  const engineLegend = (targets: PerformanceTarget[]) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {targets.map((engine) => (
+        <div key={engine.id} className="flex items-center gap-2 text-[0.78rem] text-muted">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: engine.color }} />
+          {engine.name}
+        </div>
+      ))}
+      {releaseMarkers.length > 0 ? (
+        <div className="flex items-center gap-2 text-[0.78rem] text-muted">
+          <span className="w-5 border-t border-dashed" style={{ borderColor: "rgba(218, 208, 175, 0.68)" }} />
+          Stable PIE releases
+        </div>
+      ) : null}
+    </div>
+  );
 
   const filterActions = (
     <div className="flex flex-wrap items-center justify-center gap-4 mt-4 px-1">
-      {deviceOptions.length > 1 && (
-        <div className="flex items-center gap-2">
-          <span className="text-[0.75rem] text-muted font-medium">Device</span>
-          <div className="flex p-0.5 bg-white/[0.02] border border-white/5 rounded-lg">
-            <button
-              onClick={() => setSelectedDevice(null)}
-              className={cx(
-                "px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all",
-                selectedDevice === null
-                  ? "bg-white/10 text-white shadow-sm"
-                  : "text-muted hover:text-zinc-300 hover:bg-white/5",
-              )}
-            >
-              All
-            </button>
-            {deviceOptions.map((device) => (
-              <button
-                key={device}
-                onClick={() => setSelectedDevice(device)}
-                className={cx(
-                  "px-2.5 py-1 text-[0.75rem] font-medium rounded-[0.35rem] transition-all whitespace-nowrap",
-                  selectedDevice === device
-                    ? "bg-white/10 text-white shadow-sm"
-                    : "text-muted hover:text-zinc-300 hover:bg-white/5",
-                )}
-              >
-                {device}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       {selectedFamily && versionOptions.length > 1 && (
         <div className="flex items-center gap-2">
           <span className="text-[0.75rem] text-muted font-medium">Version</span>
@@ -976,20 +1195,16 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               !hasSpecificModelSelection ? (
                 <div>
                   <div className="mb-6 px-1 flex flex-col gap-3">
-                    <div>
-                      <h3 className="text-[1.1rem] font-semibold text-zinc-100">
-                        {selectedFamily ? `${selectedFamily} Performance` : "All Models Performance"}
-                      </h3>
-                      <p className="text-sm text-muted mt-1">Select a model below to view detailed engine comparison.</p>
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <h3 className="text-[1.1rem] font-semibold text-zinc-100">
+                          {selectedFamily ? `${selectedFamily} Performance` : "All Models Performance"}
+                        </h3>
+                        <p className="text-sm text-muted mt-1">Select a model below to view detailed engine comparison.</p>
+                      </div>
+                      {comparisonDeviceControl}
                     </div>
-                    <div className="flex flex-wrap items-center gap-4">
-                      {PERFORMANCE_TARGETS.map((engine) => (
-                        <div key={engine.id} className="flex items-center gap-2 text-[0.85rem] text-muted">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: engine.color }} />
-                          {engine.name}
-                        </div>
-                      ))}
-                    </div>
+                    {engineLegend(activePerformanceTargets)}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
                     {visibleModels.map((model) => {
@@ -999,10 +1214,11 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                       if (modelGridSweepRuns.length === 0) return null;
 
                       const sparkLabels = modelGridSweepRuns.map(r => formatMonthDayTime(r.timestamp));
+                      const sparkTimestamps = modelGridSweepRuns.map(r => r.timestamp);
 
                       const sparklineData: ChartData<"line"> = {
                         labels: sparkLabels,
-                        datasets: PERFORMANCE_TARGETS.map((engine) => ({
+                        datasets: performanceTargets.map((engine) => ({
                           label: engine.name,
                           data: modelGridSweepRuns.map(r => performanceData.get(engine.id)?.get(r.id)?.throughput ?? null),
                           borderColor: engine.color,
@@ -1028,6 +1244,11 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                         },
                         maintainAspectRatio: false,
                       };
+                      const sparklineOptionsWithMarkers = withReleaseMarkers(
+                        sparklineOptions,
+                        sparkTimestamps,
+                        releaseMarkers,
+                      );
 
                       return (
                         <div
@@ -1046,7 +1267,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                             subtext="Throughput (tok/s) · Batch 1"
                             type="line"
                             data={sparklineData}
-                            options={sparklineOptions}
+                            options={sparklineOptionsWithMarkers}
+                            plugins={releaseChartPlugins}
                             className="h-full bg-white/[0.015] group-hover:border-white/10 transition-colors pointer-events-none"
                             heightClassName="h-36"
                           />
@@ -1076,20 +1298,26 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                     </div>
                   ) : (
                     <>
+                      <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-white/[0.018] px-3 py-3 lg:flex-row lg:items-start lg:justify-between">
+                        {comparisonDeviceControl}
+                        {engineLegend(activePerformanceTargets)}
+                      </div>
                       <div className="grid gap-6 xl:grid-cols-2 flex-1">
                         <ChartCard
                           title="Throughput"
                           subtext={`Tokens per second over time. ${currentModelName}. Higher is better.`}
                           type="line"
                           data={throughputData}
-                          options={createBaseChartOptions()}
+                          options={throughputOptions}
+                          plugins={releaseChartPlugins}
                         />
                         <ChartCard
                           title="Time to First Token"
                           subtext={`TTFT in milliseconds. ${currentModelName}. Lower is better.`}
                           type="line"
                           data={ttftData}
-                          options={createBaseChartOptions()}
+                          options={ttftOptions}
+                          plugins={releaseChartPlugins}
                         />
                       </div>
                       {filterActions}

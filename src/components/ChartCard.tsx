@@ -1,5 +1,5 @@
 import { Chart } from "chart.js/auto";
-import type { ChartData, ChartOptions, ChartType } from "chart.js";
+import type { ChartData, ChartOptions, ChartType, Plugin } from "chart.js";
 import { useEffect, useRef } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import SectionCard from "./SectionCard";
@@ -12,6 +12,7 @@ type ChartCardProps = {
   type: ChartType;
   data: ChartData;
   options?: ChartOptions;
+  plugins?: Plugin[];
   actions?: ComponentChildren;
   className?: string;
   heightClassName?: string;
@@ -24,6 +25,7 @@ export default function ChartCard({
   type,
   data,
   options,
+  plugins,
   actions,
   className,
   heightClassName = "h-72",
@@ -39,10 +41,11 @@ export default function ChartCard({
       type,
       data,
       options,
+      plugins,
     });
 
     return () => chart.destroy();
-  }, [type, data, options]);
+  }, [type, data, options, plugins]);
 
   return (
     <SectionCard
