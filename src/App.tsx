@@ -5,9 +5,111 @@ import { formatRelativeTime } from "./lib/format";
 import type { BenchmarksTabData } from "./types";
 
 const FETCH_TIMEOUT_MS = 30000;
-const INSTALL_COMMANDS = [
-  "pip install orchard",
-  "cargo add orchard-rs",
+const DOCS_URL = "https://docs.theproxycompany.com/orchard/";
+const GETTING_STARTED_URL = DOCS_URL;
+const PYTHON_URL = "https://pypi.org/project/orchard/";
+const RUST_URL = "https://crates.io/crates/orchard-rs";
+
+const PACKAGE_TRACKS = [
+  {
+    label: "Python",
+    title: "Standalone Python package",
+    body:
+      "Best for Python services, notebooks, automations, and evaluation jobs. Use the client directly, or run the optional OpenAI-compatible server when another process needs HTTP.",
+    primaryHref: GETTING_STARTED_URL,
+    primaryLabel: "Getting started",
+    href: PYTHON_URL,
+    hrefLabel: "PyPI",
+  },
+  {
+    label: "Rust",
+    title: "Embedded Rust library",
+    body:
+      "Best for Rust products that need to own the engine lifecycle, keep models warm, stream tokens over local IPC, and expose app-specific inference APIs.",
+    primaryHref: GETTING_STARTED_URL,
+    primaryLabel: "Getting started",
+    href: RUST_URL,
+    hrefLabel: "Crates.io",
+  },
+];
+
+const VALUE_PROPS = [
+  {
+    label: "Private by design",
+    title: "Keep inference inside your environment",
+    body:
+      "Run models on Apple Silicon you control. Prompts, files, tool results, and outputs do not need to pass through a hosted model API.",
+  },
+  {
+    label: "On-premise ready",
+    title: "A practical path for sensitive deployments",
+    body:
+      "Orchard is built for teams that need local AI near private data, internal systems, regulated workflows, or customer-owned hardware.",
+  },
+  {
+    label: "Production serving",
+    title: "Built for more than demos",
+    body:
+      "Keep models warm, serve concurrent work, stream responses, and compare release performance with public benchmark traces.",
+  },
+  {
+    label: "Application contracts",
+    title: "Make local models useful in products",
+    body:
+      "Structured output, tool calling, reasoning controls, and multimodal inputs make Orchard useful for agents and real workflows.",
+  },
+];
+
+const DIFFERENTIATORS = [
+  {
+    title: "Custom Apple Silicon kernels",
+    body:
+      "Orchard uses custom Metal kernels and a local runtime tuned for Apple GPUs, so private inference can stay fast enough for interactive products and high-throughput jobs.",
+  },
+  {
+    title: "Continuous batching",
+    body:
+      "Concurrent prompts can move through one warm engine process, improving throughput without making every application team manage scheduler details.",
+  },
+  {
+    title: "Multiple loaded models",
+    body:
+      "Text, vision, and specialist models can stay available together, which matters when one product workflow needs several model capabilities.",
+  },
+  {
+    title: "Improved structured output",
+    body:
+      "JSON schema and state-constrained generation help local models return data that applications can validate and act on.",
+  },
+  {
+    title: "Tool calling and reasoning",
+    body:
+      "Tool schemas, function calls, and model-dependent reasoning levels give local agents a clearer contract with the software around them.",
+  },
+  {
+    title: "Multimodal support",
+    body:
+      "Vision-capable models use the same Orchard surface as text models, so teams can build private document, image, and screen-understanding workflows.",
+  },
+];
+
+const USE_CASES = [
+  {
+    title: "On-prem assistants",
+    body: "Run copilots and agents next to private tools, documents, and databases without moving prompts into cloud inference.",
+  },
+  {
+    title: "Private document workflows",
+    body: "Analyze sensitive PDFs, screenshots, support records, and operational data on local hardware.",
+  },
+  {
+    title: "Local product features",
+    body: "Add low-latency summarization, extraction, reasoning, and visual understanding to Mac-first products.",
+  },
+  {
+    title: "Evaluation and regression tracking",
+    body: "Use the same runtime in benchmark harnesses and production loops, then inspect performance across releases.",
+  },
 ];
 
 export default function App() {
@@ -52,117 +154,151 @@ export default function App() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-[1180px] px-5 py-8 sm:px-8 lg:py-12">
+    <main className="site-shell">
       <header className="site-header">
         <a href="/" className="site-mark">Orchard.md</a>
-        <nav className="site-nav">
-          <a href="#install">Install</a>
+        <nav className="site-nav" aria-label="Primary">
+          <a href="#value">Why Orchard</a>
+          <a href="#platform">Platform</a>
           <a href="#benchmarks">Benchmarks</a>
-          <a href="https://docs.theproxycompany.com/orchard/">Docs</a>
-          <a href="https://github.com/TheProxyCompany">GitHub</a>
+          <a href={DOCS_URL}>Docs</a>
         </nav>
       </header>
 
+      <section className="hero" aria-labelledby="hero-heading">
+        <img
+          className="hero-image"
+          src="https://proxy.ing/images/orchard.webp"
+          alt="The Apple Gathering by Jerome Thompson"
+        />
+        <div className="hero-shade" />
+        <div className="hero-copy">
+          <p className="eyebrow">Local inference for Apple Silicon</p>
+          <h1 id="hero-heading">Orchard</h1>
+          <p className="tagline">Every Apple needs an Orchard.</p>
+          <p className="lede">
+            Private, on-premise inference for teams that need useful local AI without
+            moving sensitive data into a hosted model API. Orchard pairs custom Apple
+            Silicon kernels with production serving features for structured,
+            tool-using, multimodal applications.
+          </p>
+          <div className="hero-actions">
+            <a className="button button-primary" href={GETTING_STARTED_URL}>Getting started</a>
+            <a className="button button-secondary" href={DOCS_URL}>Read docs</a>
+            <a className="button button-secondary" href="#benchmarks">View benchmarks</a>
+          </div>
+        </div>
+        <p className="image-credit">The Apple Gathering, Jerome Thompson</p>
+      </section>
+
       <article className="document">
-        <section className="hero">
-          <div className="hero-copy">
-            <p className="eyebrow">The Proxy Company</p>
-            <h1>Orchard</h1>
-            <p className="tagline">Every Apple needs an Orchard.</p>
-            <p className="lede">
-              Local inference on Apple Silicon. The engine underneath Proxy. Run multiple models at once on your Mac.
-            </p>
-            <div className="command-stack" id="install" aria-label="Install Orchard">
-              {INSTALL_COMMANDS.map((command) => (
-                <code key={command}>{command}</code>
-              ))}
-            </div>
-          </div>
-          <figure className="painting">
-            <img
-              src="https://proxy.ing/images/orchard.webp"
-              alt="The Apple Gathering by Jerome Thompson"
-            />
-            <figcaption>The Apple Gathering · Jerome Thompson</figcaption>
-          </figure>
-        </section>
-
-        <section className="prose-grid">
-          <div>
-            <h2>Local First</h2>
+        <section id="value" className="section value-section" aria-labelledby="value-heading">
+          <div className="section-heading">
+            <p className="eyebrow">Value proposition</p>
+            <h2 id="value-heading">Private inference your team can actually deploy</h2>
             <p>
-              Orchard is the local compute layer for Proxy and a standalone runtime for developers building with open
-              models on Apple Silicon.
+              Orchard is for organizations that want the capability of modern open
+              models without making every prompt, document, or tool result leave their
+              own environment.
             </p>
           </div>
-          <ul>
-            <li>Multiple models, at the same time</li>
-            <li>Structured output, multimodal, streaming</li>
-            <li>Custom kernels and inference engine built for Apple Silicon</li>
-          </ul>
+
+          <div className="value-grid">
+            {VALUE_PROPS.map((item) => (
+              <article key={item.title} className="value-card">
+                <p className="card-label">{item.label}</p>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
         </section>
 
-        <section className="prose-grid">
-          <div>
-            <h2>Open Source</h2>
+        <section id="platform" className="section package-section" aria-labelledby="platform-heading">
+          <div className="section-heading">
+            <p className="eyebrow">Adoption paths</p>
+            <h2 id="platform-heading">A local engine for Python teams and Rust products</h2>
             <p>
-              Private, offline, on device. Use Orchard directly through the SDKs or as the engine layer underneath a
-              larger local AI application.
+              Use Orchard as a standalone Python package, embed it in Rust applications,
+              or expose the OpenAI-compatible server when existing software needs HTTP.
             </p>
           </div>
-          <ul>
-            <li><a href="https://pypi.org/project/orchard/">Python SDK on PyPI</a></li>
-            <li><a href="https://github.com/TheProxyCompany/orchard-rs">Rust SDK on crates.io</a></li>
-            <li><a href="https://docs.theproxycompany.com/orchard/">Read the docs</a></li>
-          </ul>
+
+          <div className="package-grid">
+            {PACKAGE_TRACKS.map((track) => (
+              <article key={track.label} className="package-card">
+                <p className="card-label">{track.label}</p>
+                <h3>{track.title}</h3>
+                <p>{track.body}</p>
+                <div className="card-actions">
+                  <a href={track.primaryHref}>{track.primaryLabel}</a>
+                  <a href={track.href}>{track.hrefLabel}</a>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
 
-        <section className="prose-block">
-          <h2>Why it exists</h2>
-          <p>
-            Cloud models are useful. They should not be the only way your software can think. Orchard is the local
-            compute layer under Proxy: private by default, fast on Apple Silicon, and designed for real applications
-            instead of toy completions.
-          </p>
-          <p>
-            The engine combines a C++ inference runtime, custom Metal kernels, grammar-aware generation, and Python and
-            Rust clients. It is built for the work developers actually need from local models: tool calling, JSON,
-            visual inputs, long-running agents, and low-latency interactive loops.
-          </p>
-        </section>
-
-        <section className="prose-grid">
-          <div>
-            <h2>Use the runtime</h2>
+        <section className="section capability-section" aria-labelledby="capabilities-heading">
+          <div className="section-heading">
+            <p className="eyebrow">What makes it different</p>
+            <h2 id="capabilities-heading">The pieces teams normally miss in local inference</h2>
             <p>
-              Install the SDK, pick a supported open model, and call Orchard from your app or benchmark harness.
+              Orchard packages the low-level runtime work and the application-level
+              contracts together, so local models can become dependable product
+              infrastructure.
             </p>
           </div>
-          <ul>
-            <li>Python and Rust clients</li>
-            <li>OpenAI-style responses</li>
-            <li>Structured output and state-constrained decoding</li>
-            <li>Apple Silicon first, with performance numbers below</li>
-          </ul>
+          <div className="capability-list">
+            {DIFFERENTIATORS.map((item) => (
+              <article key={item.title} className="capability-row">
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
         </section>
 
-        <section className="prose-block">
-          <h2>Check the work</h2>
-          <p>
-            The benchmark feed below is public for the same reason the engine is public-facing: performance claims
-            should be inspectable. These are captured runs from the benchmark pipeline, with hostnames stripped before
-            the data leaves the API.
-          </p>
-          {updatedAt ? (
-            <p className="muted-line">Benchmark feed updated {formatRelativeTime(updatedAt)}.</p>
-          ) : null}
+        <section className="section use-case-section" aria-labelledby="use-case-heading">
+          <div className="section-heading">
+            <p className="eyebrow">Where it fits</p>
+            <h2 id="use-case-heading">For teams that need local AI to be operational</h2>
+            <p>
+              Orchard is strongest when privacy, latency, throughput, and application
+              contracts all matter at the same time.
+            </p>
+          </div>
+
+          <div className="use-case-grid">
+            {USE_CASES.map((item) => (
+              <article key={item.title} className="use-case-card">
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="section benchmark-intro" aria-labelledby="benchmark-intro-heading">
+          <div className="section-heading">
+            <p className="eyebrow">Public benchmark feed</p>
+            <h2 id="benchmark-intro-heading">Performance claims should be inspectable</h2>
+            <p>
+              The charts below come from captured benchmark runs. Device filters keep
+              engine comparisons honest, and stable PIE release markers make regressions
+              easier to spot.
+            </p>
+            {updatedAt ? (
+              <p className="muted-line">Benchmark feed updated {formatRelativeTime(updatedAt)}.</p>
+            ) : null}
+          </div>
         </section>
       </article>
 
       <section id="benchmarks" className="benchmarks-shell" aria-labelledby="benchmarks-heading">
         <div className="benchmarks-heading">
           <div>
-            <p className="eyebrow">Public benchmark feed</p>
+            <p className="eyebrow">Live data</p>
             <h2 id="benchmarks-heading">Orchard Benchmarks</h2>
           </div>
           {loading && data ? (
