@@ -108,6 +108,7 @@ export type BenchmarkRun = {
   timestamp: string;
   device: string;
   hostname: string;
+  targets?: string[];
   systemMetrics: Record<string, unknown>[];
   status: string;
   metadata: Record<string, unknown>;

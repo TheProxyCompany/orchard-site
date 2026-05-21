@@ -132,6 +132,7 @@ const KNOWN_MODELS: Record<string, Omit<ModelTarget, "id">> = {
 
 const AUTO_COLORS = ["#f97316", "#ec4899", "#14b8a6", "#6366f1", "#f43f5e", "#a855f7", "#06b6d4"];
 const RELEASE_CHART_PLUGINS = [releaseMarkersPlugin];
+const PRIMARY_QUALITY_TARGET = "orchard_native";
 
 const DEFAULT_MODEL_BY_FAMILY: Record<string, string> = {
   Gemma: "google/gemma-4-26B-A4B-it",
@@ -317,6 +318,22 @@ function extractModelId(run: BenchmarksTabData["runs"][number], targets: ModelTa
 function extractModel(run: BenchmarksTabData["runs"][number], targets: ModelTarget[]): ModelTarget | null {
   const id = extractModelId(run, targets);
   return id ? targets.find((target) => target.id === id) ?? null : null;
+}
+
+function runTargets(run: BenchmarksTabData["runs"][number]): string[] {
+  if (run.targets && run.targets.length > 0) return run.targets;
+
+  const metricTargets = run.systemMetrics
+    .map((metric) => metric.target_name)
+    .filter((target): target is string => typeof target === "string" && target.length > 0);
+  if (metricTargets.length > 0) return metricTargets;
+
+  const match = run.runName.match(/_on_([A-Za-z0-9_]+)$/);
+  return match ? [match[1]] : [];
+}
+
+function isPrimaryQualityRun(run: BenchmarksTabData["runs"][number]): boolean {
+  return runTargets(run).includes(PRIMARY_QUALITY_TARGET);
 }
 
 function representativeModels(targets: ModelTarget[], runs: BenchmarksTabData["runs"]): ModelTarget[] {
@@ -541,7 +558,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
   const qualityData = new Map<string, Map<string, { runId: number; score: number }[]>>();
   for (const item of targetSummaries) {
-    if (item.summary.score !== null && MODEL_TARGETS.some((t) => t.id === item.targetName)) {
+    if (item.summary.score !== null && isPrimaryQualityRun(item.run) && MODEL_TARGETS.some((t) => t.id === item.targetName)) {
       if (!qualityData.has(item.run.scenarioName)) {
         qualityData.set(item.run.scenarioName, new Map());
       }
@@ -588,6 +605,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     return !model || visibleModelIds.has(model.id);
   });
   const visibleRunIds = new Set(visibleRuns.map((run) => run.id));
+  const qualityRuns = visibleRuns.filter(isPrimaryQualityRun);
+  const qualityRunIds = new Set(qualityRuns.map((run) => run.id));
   const performanceDeviceCoverage = derivePerformanceDeviceCoverage(targetSummaries, visibleRunIds, performanceTargetIds);
   const performanceDeviceOptions = performanceDeviceCoverage.map((item) => item.device);
   const defaultPerformanceDevice = performanceDeviceOptions[0] ?? null;
@@ -669,7 +688,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       : "All Models";
 
     if (validSelectedScenario) {
-      const scenarioRuns = visibleRuns.filter((run) => run.scenarioName === validSelectedScenario);
+      const scenarioRuns = qualityRuns.filter((run) => run.scenarioName === validSelectedScenario);
       const scenarioTimestamps = scenarioRuns.map((run) => run.timestamp);
       const chartData: ChartData<"line"> = {
         labels: scenarioRuns.map((run) => formatMonthDayTime(run.timestamp)),
@@ -677,7 +696,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
           const scoresByRunId = new Map<number, number>();
           const points = qualityData.get(validSelectedScenario)?.get(target.id) ?? [];
           for (const point of points) {
-            if (visibleRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
+            if (qualityRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
           }
           return {
             label: target.name,
@@ -719,7 +738,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
     const scenariosWithData = qualityScenarios.filter((scenario) =>
       visibleModels.some((target) =>
-        (qualityData.get(scenario)?.get(target.id) ?? []).some((point) => visibleRunIds.has(point.runId)),
+        (qualityData.get(scenario)?.get(target.id) ?? []).some((point) => qualityRunIds.has(point.runId)),
       ),
     );
 
@@ -747,10 +766,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
           {scenariosWithData.map((scenario, idx) => {
-            const scenarioRuns = visibleRuns.filter((run) => run.scenarioName === scenario);
+            const scenarioRuns = qualityRuns.filter((run) => run.scenarioName === scenario);
             const latestScores = visibleModels
               .map((target) => (qualityData.get(scenario)?.get(target.id) ?? [])
-                .filter((point) => visibleRunIds.has(point.runId))
+                .filter((point) => qualityRunIds.has(point.runId))
                 .at(-1)?.score ?? null)
               .filter((score): score is number => score !== null);
             const latestScore = latestScores.length > 0
@@ -763,7 +782,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                 const scoresByRunId = new Map<number, number>();
                 const points = qualityData.get(scenario)?.get(target.id) ?? [];
                 for (const point of points) {
-                  if (visibleRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
+                  if (qualityRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
                 }
                 return {
                   label: target.name,
