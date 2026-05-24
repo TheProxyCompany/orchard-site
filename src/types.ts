@@ -131,6 +131,8 @@ export type BenchmarksTabData = {
   overviewRuns: BenchmarkRun[];
   releases?: BenchmarkRelease[];
   days: number;
+  limit?: number;
+  overviewLimit?: number;
 };
 
 export type GitHubWorkflowRun = {

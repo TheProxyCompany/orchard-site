@@ -513,7 +513,12 @@ function withoutChartLegend(options: ChartOptions<"line">): ChartOptions<"line">
 }
 
 export default function Benchmarks({ data }: BenchmarksProps) {
-  if (data.runs.length === 0) {
+  const allRunsById = new Map<number, BenchmarksTabData["runs"][number]>();
+  for (const run of data.runs) allRunsById.set(run.id, run);
+  for (const run of data.overviewRuns ?? []) allRunsById.set(run.id, run);
+  const allRuns = Array.from(allRunsById.values());
+
+  if (allRuns.length === 0) {
     return (
       <div className="p-8 text-center border border-white/10 rounded-2xl bg-white/[0.02]">
         <p className="text-muted">No benchmark data in this window yet.</p>
@@ -521,7 +526,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     );
   }
 
-  const MODEL_TARGETS = deriveModelTargets(data.runs);
+  const MODEL_TARGETS = deriveModelTargets(allRuns);
   const familyOrder = ["Gemma", "Llama", "Qwen", "Moondream"];
   const modelFamilies = Array.from(new Set(MODEL_TARGETS.map((model) => model.family))).sort((a, b) => {
     const ai = familyOrder.indexOf(a);
@@ -532,7 +537,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     return a.localeCompare(b);
   });
 
-  const chronologicalRuns = [...data.runs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const chronologicalRuns = allRuns.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const releaseMarkers = releaseMarkersForData(data);
   const releaseChartPlugins = releaseMarkers.length > 0 ? RELEASE_CHART_PLUGINS : undefined;
 
