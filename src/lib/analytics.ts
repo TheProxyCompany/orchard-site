@@ -89,6 +89,7 @@ export function summarizeBenchmarkRun(
   options?: {
     batchSize?: number | null;
     promptLength?: number | null;
+    maxPromptLength?: number | null;
   },
 ): {
   score: number | null;
@@ -105,9 +106,11 @@ export function summarizeBenchmarkRun(
       if (bs !== null && bs !== options.batchSize) continue;
     }
 
+    const pl = firstMetricNumber(aggregate.metrics, ["prompt_length"]);
     if (options?.promptLength !== undefined && options.promptLength !== null) {
-      const pl = firstMetricNumber(aggregate.metrics, ["prompt_length"]);
       if (pl !== null && pl !== options.promptLength) continue;
+    } else if (options?.maxPromptLength !== undefined && options.maxPromptLength !== null) {
+      if (pl !== null && pl > options.maxPromptLength) continue;
     }
 
     const score = firstMetricNumber(aggregate.metrics, ["score"]);

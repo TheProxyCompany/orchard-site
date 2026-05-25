@@ -269,6 +269,7 @@ const KNOWN_PERFORMANCE_TARGETS: Record<string, Omit<PerformanceTarget, "id">> =
 
 const PERFORMANCE_TARGET_ORDER = Object.keys(KNOWN_PERFORMANCE_TARGETS);
 const AUTO_TARGET_COLORS = ["#06b6d4", "#fb7185", "#84cc16", "#c084fc", "#2dd4bf", "#f59e0b"];
+const OVERVIEW_MAX_PROMPT_LENGTH = 512;
 
 const SCENARIO_ORDER = [
   "mmlu_pro",
@@ -871,6 +872,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
         { 
           batchSize: isOverview ? 1 : selectedBatchSize,
           promptLength: isOverview ? null : selectedPromptLength,
+          maxPromptLength: selectedPromptLength === null ? OVERVIEW_MAX_PROMPT_LENGTH : null,
         }
       );
       performanceData.get(item.targetName)!.set(item.run.id, {
@@ -1129,7 +1131,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                   : "text-muted hover:text-zinc-300 hover:bg-white/5",
               )}
             >
-              All
+              Overview
             </button>
             {sortedPromptLengths.map((pl) => (
               <button
