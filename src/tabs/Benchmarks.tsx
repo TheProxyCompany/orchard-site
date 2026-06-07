@@ -271,7 +271,7 @@ const PERFORMANCE_TARGET_ORDER = Object.keys(KNOWN_PERFORMANCE_TARGETS);
 const AUTO_TARGET_COLORS = ["#06b6d4", "#fb7185", "#84cc16", "#c084fc", "#2dd4bf", "#f59e0b"];
 const OVERVIEW_MAX_PROMPT_LENGTH = 512;
 
-const SCENARIO_ORDER = [
+const EVAL_ORDER = [
   "mmlu_pro",
   "bfcl",
   "ruler",
@@ -283,7 +283,7 @@ const SCENARIO_ORDER = [
   "refcoco_m",
 ];
 
-const SCENARIO_LABELS: Record<string, string> = {
+const EVAL_LABELS: Record<string, string> = {
   mmlu_pro: "MMLU-Pro",
   bfcl: "BFCL",
   ruler: "RULER",
@@ -296,11 +296,11 @@ const SCENARIO_LABELS: Record<string, string> = {
   grid_sweep: "Grid Sweep",
 };
 
-function formatScenarioName(scenarioName: string): string {
-  if (SCENARIO_LABELS[scenarioName]) {
-    return SCENARIO_LABELS[scenarioName];
+function formatEvalName(evalName: string): string {
+  if (EVAL_LABELS[evalName]) {
+    return EVAL_LABELS[evalName];
   }
-  return scenarioName
+  return evalName
     .split(/[_-]+/)
     .filter(Boolean)
     .map((part) => (part.length <= 3 ? part.toUpperCase() : `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`))
@@ -340,7 +340,7 @@ function isPrimaryQualityRun(run: BenchmarksTabData["runs"][number]): boolean {
 function representativeModels(targets: ModelTarget[], runs: BenchmarksTabData["runs"]): ModelTarget[] {
   const gridSweepModelIds = new Set(
     runs
-      .filter((run) => run.scenarioName === "grid_sweep")
+      .filter((run) => run.evalName === "grid_sweep")
       .map((run) => extractModelId(run, targets))
       .filter((id): id is string => id !== null),
   );
@@ -367,7 +367,7 @@ function formatTargetName(targetName: string): string {
 function derivePerformanceTargets(targetSummaries: TargetSummary[]): PerformanceTarget[] {
   const targetIds = new Set<string>();
   for (const item of targetSummaries) {
-    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (item.run.evalName !== "grid_sweep") continue;
     if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
     targetIds.add(item.targetName);
   }
@@ -410,7 +410,7 @@ function derivePerformanceDeviceCoverage(
 
   for (const item of targetSummaries) {
     if (!eligibleRunIds.has(item.run.id)) continue;
-    if (item.run.scenarioName !== "grid_sweep") continue;
+    if (item.run.evalName !== "grid_sweep") continue;
     if (!performanceTargetIds.has(item.targetName)) continue;
     if (item.summary.throughput === null && item.summary.ttftMs === null) continue;
 
@@ -565,24 +565,24 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const qualityData = new Map<string, Map<string, { runId: number; score: number }[]>>();
   for (const item of targetSummaries) {
     if (item.summary.score !== null && isPrimaryQualityRun(item.run) && MODEL_TARGETS.some((t) => t.id === item.targetName)) {
-      if (!qualityData.has(item.run.scenarioName)) {
-        qualityData.set(item.run.scenarioName, new Map());
+      if (!qualityData.has(item.run.evalName)) {
+        qualityData.set(item.run.evalName, new Map());
       }
-      const scenarioMap = qualityData.get(item.run.scenarioName)!;
-      if (!scenarioMap.has(item.targetName)) {
-        scenarioMap.set(item.targetName, []);
+      const evalMap = qualityData.get(item.run.evalName)!;
+      if (!evalMap.has(item.targetName)) {
+        evalMap.set(item.targetName, []);
       }
-      scenarioMap.get(item.targetName)!.push({ runId: item.run.id, score: item.summary.score });
+      evalMap.get(item.targetName)!.push({ runId: item.run.id, score: item.summary.score });
     }
   }
 
-  const qualityScenarios = Array.from(qualityData.keys()).sort((a, b) => {
-    const idxA = SCENARIO_ORDER.indexOf(a);
-    const idxB = SCENARIO_ORDER.indexOf(b);
+  const qualityEvals = Array.from(qualityData.keys()).sort((a, b) => {
+    const idxA = EVAL_ORDER.indexOf(a);
+    const idxB = EVAL_ORDER.indexOf(b);
     if (idxA !== -1 && idxB !== -1) return idxA - idxB;
     if (idxA !== -1) return -1;
     if (idxB !== -1) return 1;
-    return formatScenarioName(a).localeCompare(formatScenarioName(b));
+    return formatEvalName(a).localeCompare(formatEvalName(b));
   });
 
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
@@ -591,7 +591,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedPerformanceDevice, setSelectedPerformanceDevice] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<"performance" | "quality">("performance");
-  const [selectedQualityScenario, setSelectedQualityScenario] = useState<string | null>(null);
+  const [selectedQualityEval, setSelectedQualityEval] = useState<string | null>(null);
   const [selectedBatchSize, setSelectedBatchSize] = useState<number>(1);
   const [selectedPromptLength, setSelectedPromptLength] = useState<number | null>(null);
 
@@ -633,13 +633,13 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     .filter((model) => (!selectedVersion || model.version === selectedVersion) && (!selectedSize || model.size === selectedSize))
     .map((model) => model.variant ?? "Base")))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const validSelectedScenario = selectedQualityScenario && qualityScenarios.includes(selectedQualityScenario) ? selectedQualityScenario : null;
+  const validSelectedEval = selectedQualityEval && qualityEvals.includes(selectedQualityEval) ? selectedQualityEval : null;
 
   const availableBatchSizes = new Set<number>();
   const availablePromptLengths = new Set<number>();
   for (const item of targetSummaries) {
     if (!performanceRunIds.has(item.run.id)) continue;
-    if (item.run.scenarioName === "grid_sweep") {
+    if (item.run.evalName === "grid_sweep") {
       for (const aggregate of item.aggregates) {
         let bs: number | null = null;
         if ("batch_size" in aggregate.metrics) {
@@ -693,20 +693,20 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       ? [selectedFamily, selectedVersion, selectedSize, selectedVariant].filter(Boolean).join(" ")
       : "All Models";
 
-    if (validSelectedScenario) {
-      const scenarioRuns = qualityRuns.filter((run) => run.scenarioName === validSelectedScenario);
-      const scenarioTimestamps = scenarioRuns.map((run) => run.timestamp);
+    if (validSelectedEval) {
+      const evalRuns = qualityRuns.filter((run) => run.evalName === validSelectedEval);
+      const evalTimestamps = evalRuns.map((run) => run.timestamp);
       const chartData: ChartData<"line"> = {
-        labels: scenarioRuns.map((run) => formatMonthDayTime(run.timestamp)),
+        labels: evalRuns.map((run) => formatMonthDayTime(run.timestamp)),
         datasets: visibleModels.map((target) => {
           const scoresByRunId = new Map<number, number>();
-          const points = qualityData.get(validSelectedScenario)?.get(target.id) ?? [];
+          const points = qualityData.get(validSelectedEval)?.get(target.id) ?? [];
           for (const point of points) {
             if (qualityRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
           }
           return {
             label: target.name,
-            data: scenarioRuns.map((run) => scoresByRunId.get(run.id) ?? null),
+            data: evalRuns.map((run) => scoresByRunId.get(run.id) ?? null),
             borderColor: target.color,
             backgroundColor: target.color,
             fill: false,
@@ -715,12 +715,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
           };
         }),
       };
-      const chartOptions = withReleaseMarkers(options, scenarioTimestamps, releaseMarkers, true);
+      const chartOptions = withReleaseMarkers(options, evalTimestamps, releaseMarkers, true);
 
       return (
         <div className="flex flex-col gap-4 h-full">
           <button
-            onClick={() => setSelectedQualityScenario(null)}
+            onClick={() => setSelectedQualityEval(null)}
             className="flex items-center gap-2 text-[0.85rem] font-medium text-muted hover:text-zinc-200 transition-colors w-fit px-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -729,8 +729,8 @@ export default function Benchmarks({ data }: BenchmarksProps) {
             Back to Overview
           </button>
           <ChartCard
-            title={`${formatScenarioName(validSelectedScenario)} Trend`}
-            subtext={`Historical scores for ${selectedLabel} on ${formatScenarioName(validSelectedScenario)}.`}
+            title={`${formatEvalName(validSelectedEval)} Trend`}
+            subtext={`Historical scores for ${selectedLabel} on ${formatEvalName(validSelectedEval)}.`}
             type="line"
             data={chartData}
             options={chartOptions}
@@ -742,9 +742,9 @@ export default function Benchmarks({ data }: BenchmarksProps) {
       );
     }
 
-    const scenariosWithData = qualityScenarios.filter((scenario) =>
+    const evalsWithData = qualityEvals.filter((evalName) =>
       visibleModels.some((target) =>
-        (qualityData.get(scenario)?.get(target.id) ?? []).some((point) => qualityRunIds.has(point.runId)),
+        (qualityData.get(evalName)?.get(target.id) ?? []).some((point) => qualityRunIds.has(point.runId)),
       ),
     );
 
@@ -753,7 +753,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
         <div className="mb-6 px-1 flex flex-col gap-3">
           <div>
             <h3 className="text-[1.1rem] font-semibold text-zinc-100">{selectedLabel} Overview</h3>
-            <p className="text-sm text-muted mt-1">Select a scenario below to view detailed historical performance.</p>
+            <p className="text-sm text-muted mt-1">Select a evalName below to view detailed historical performance.</p>
           </div>
           <div className="flex flex-wrap items-center gap-4">
             {visibleModels.map((target) => (
@@ -771,10 +771,10 @@ export default function Benchmarks({ data }: BenchmarksProps) {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
-          {scenariosWithData.map((scenario, idx) => {
-            const scenarioRuns = qualityRuns.filter((run) => run.scenarioName === scenario);
+          {evalsWithData.map((evalName, idx) => {
+            const evalRuns = qualityRuns.filter((run) => run.evalName === evalName);
             const latestScores = visibleModels
-              .map((target) => (qualityData.get(scenario)?.get(target.id) ?? [])
+              .map((target) => (qualityData.get(evalName)?.get(target.id) ?? [])
                 .filter((point) => qualityRunIds.has(point.runId))
                 .at(-1)?.score ?? null)
               .filter((score): score is number => score !== null);
@@ -783,16 +783,16 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               : null;
 
             const sparklineData: ChartData<"line"> = {
-              labels: scenarioRuns.map((run) => formatMonthDayTime(run.timestamp)),
+              labels: evalRuns.map((run) => formatMonthDayTime(run.timestamp)),
               datasets: visibleModels.map((target) => {
                 const scoresByRunId = new Map<number, number>();
-                const points = qualityData.get(scenario)?.get(target.id) ?? [];
+                const points = qualityData.get(evalName)?.get(target.id) ?? [];
                 for (const point of points) {
                   if (qualityRunIds.has(point.runId)) scoresByRunId.set(point.runId, point.score);
                 }
                 return {
                   label: target.name,
-                  data: scenarioRuns.map((run) => scoresByRunId.get(run.id) ?? null),
+                  data: evalRuns.map((run) => scoresByRunId.get(run.id) ?? null),
                   borderColor: target.color,
                   backgroundColor: target.color,
                   fill: false,
@@ -819,7 +819,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
             };
             const sparklineOptionsWithMarkers = withReleaseMarkers(
               sparklineOptions,
-              scenarioRuns.map((run) => run.timestamp),
+              evalRuns.map((run) => run.timestamp),
               releaseMarkers,
             );
 
@@ -836,12 +836,12 @@ export default function Benchmarks({ data }: BenchmarksProps) {
 
             return (
               <div
-                key={scenario}
-                onClick={() => setSelectedQualityScenario(scenario)}
+                key={evalName}
+                onClick={() => setSelectedQualityEval(evalName)}
                 className="cursor-pointer text-left outline-none group transition-all duration-200 ease-out hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(255,255,255,0.06)] rounded-[1.25rem] ring-1 ring-transparent hover:ring-white/10"
               >
                 <ChartCard
-                  title={formatScenarioName(scenario)}
+                  title={formatEvalName(evalName)}
                   actions={actions}
                   type="line"
                   data={sparklineData}
@@ -862,7 +862,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
   
   for (const item of targetSummaries) {
     if (!performanceRunIds.has(item.run.id)) continue;
-    if (item.run.scenarioName === "grid_sweep" && performanceTargetIds.has(item.targetName)) {
+    if (item.run.evalName === "grid_sweep" && performanceTargetIds.has(item.targetName)) {
       if (!performanceData.has(item.targetName)) {
         performanceData.set(item.targetName, new Map());
       }
@@ -882,7 +882,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
     }
   }
 
-  const gridSweepRuns = performanceRuns.filter((run) => run.scenarioName === "grid_sweep");
+  const gridSweepRuns = performanceRuns.filter((run) => run.evalName === "grid_sweep");
 
   const perfLabels = gridSweepRuns.map((r) => formatMonthDayTime(r.timestamp));
 
@@ -1165,7 +1165,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                 setSelectedVersion(null);
                 setSelectedSize(null);
                 setSelectedVariant(null);
-                setSelectedQualityScenario(null);
+                setSelectedQualityEval(null);
               }}
               className={cx(
                 "px-5 py-2 text-[0.85rem] font-medium rounded-[0.5rem] transition-all min-w-[6rem]",
@@ -1235,7 +1235,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
                     {visibleModels.map((model) => {
                       const modelGridSweepRuns = visibleOverviewRuns.filter((run) =>
-                        run.scenarioName === "grid_sweep" && extractModelId(run, MODEL_TARGETS) === model.id
+                        run.evalName === "grid_sweep" && extractModelId(run, MODEL_TARGETS) === model.id
                       );
                       if (modelGridSweepRuns.length === 0) return null;
 
@@ -1284,7 +1284,7 @@ export default function Benchmarks({ data }: BenchmarksProps) {
                             setSelectedVersion(model.version);
                             setSelectedSize(model.size);
                             setSelectedVariant(model.variant ?? "Base");
-                            setSelectedQualityScenario(null);
+                            setSelectedQualityEval(null);
                           }}
                           className="cursor-pointer text-left outline-none group transition-all duration-200 ease-out hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(255,255,255,0.06)] rounded-[1.25rem] ring-1 ring-transparent hover:ring-white/10"
                         >
@@ -1353,9 +1353,9 @@ export default function Benchmarks({ data }: BenchmarksProps) {
               )
             ) : (
               <div>
-                {qualityScenarios.length === 0 ? (
+                {qualityEvals.length === 0 ? (
                   <div className="p-8 text-center border border-white/10 rounded-2xl bg-white/[0.02]">
-                    <p className="text-muted">No score-based benchmark scenarios found in this window.</p>
+                    <p className="text-muted">No score-based benchmark evals found in this window.</p>
                   </div>
                 ) : (
                   renderQualityChart()

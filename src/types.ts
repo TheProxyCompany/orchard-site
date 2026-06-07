@@ -104,7 +104,7 @@ export type BenchmarkAggregate = {
 export type BenchmarkRun = {
   id: number;
   runName: string;
-  scenarioName: string;
+  evalName: string;
   timestamp: string;
   device: string;
   hostname: string;
